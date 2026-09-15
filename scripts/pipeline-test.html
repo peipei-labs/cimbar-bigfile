@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>cimbar-bigfile · wasm pipeline test</title>
+  <style>
+    body { background: #111; color: #ddd; font-family: monospace; padding: 16px; }
+    #log { white-space: pre-wrap; font-size: 12px; }
+    .ok { color: #50c878; }
+    .err { color: #e74c3c; }
+    .warn { color: #f5b942; }
+  </style>
+</head>
+<body>
+  <canvas id="cimbar" style="width:512px;height:512px;"></canvas>
+  <div id="log"></div>
+  <script>
+'use strict';
+// 开发用测试页: 验证 send.html/recv.html 共用的 wasm 编解码管线。
+//   encode (cimbare_*) -> canvas 渲染 -> RGBA -> scan_extract_decode -> fountain_decode
+//   -> get_filename / decompress_read -> 多 stream 分桶 -> 拼接 + SHA256 校验
+// 不经过真实光学链路, 但覆盖 recv.html 除视频采集外的全部解码路径。
+// 运行: python -m http.server 8000 后访问 http://localhost:8000/scripts/pipeline-test.html
+
+const $ = (id) => document.getElementById(id);
+function log(msg, cls) {
+  const div = document.createElement('div');
+  if (cls) div.className = cls;
+  div.textContent = msg;
+  $('log').appendChild(div);
+}
+
+// ---------- 测试数据 (确定性伪随机) ----------
+function xorshift32(seed) {
+  let x = seed >>> 0;
+  return function () {
+    x ^= x << 13; x >>>= 0;
+    x ^= x >> 17;
+    x ^= x << 5; x >>>= 0;
+    return x >>> 0;
+  };
+}
+function randomBytes(n, seed) {
+  const rng = xorshift32(seed);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = rng() & 0xff;
+  return out;
+}
+async function sha256Hex(uint8) {
+  const buf = await crypto.subtle.digest('SHA-256', uint8);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function stripExt(filename) {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot > 0 ? filename.substring(0, lastDot) : filename;
+}
+
+// ---------- 编码侧 (与 send.html 相同调用) ----------
+function initEncode(name, encodeId) {
+  const bytes = new TextEncoder().encode(name);
+  const ptr = Module._malloc(bytes.length);
+  new Uint8Array(Module.HEAPU8.buffer, ptr, bytes.length).set(bytes);
+  const ret = Module._cimbare_init_encode(ptr, bytes.length, encodeId);
+  Module._free(ptr);
+  return ret;
+}
+function feedAll(bytes) {
+  const bufSize = Module._cimbare_encode_bufsize();
+  const ptr = Module._malloc(bufSize);
+  const view = new Uint8Array(Module.HEAPU8.buffer, ptr, bufSize);
+  let off = 0;
+  while (off < bytes.length) {
+    const n = Math.min(bufSize, bytes.length - off);
+    view.set(bytes.subarray(off, off + n), 0);
+    const r = Module._cimbare_encode(ptr, n);
+    if (r < 0 && r !== -1) throw new Error(`encode -> ${r}`);
+    off += n;
+  }
+  // 末块 < bufsize 时已隐式 flush; 补零长 flush 会返回 -1 (已 flush), 属预期 (与 send.html 一致)
+  const ret = Module._cimbare_encode(ptr, 0);
+  if (ret < 0 && ret !== -1) throw new Error(`encode flush -> ${ret}`);
+  Module._free(ptr);
+  return ret;
+}
+
+// ---------- 解码侧 (与 recv.html 相同调用) ----------
+const decodeState = {
+  fbPtr: null,
+  fbSize: 0,
+  filenamePtr: 0,
+  decompPtr: 0,
+  decompSize: 0,
+  files: new Map(), // name -> Uint8Array
+  completed: 0,
+  framesFed: 0,
+  extracted: 0,
+};
+function heapView(ptr, size) {
+  return new Uint8Array(Module.HEAPU8.buffer, ptr, size);
+}
+function allocDecode() {
+  decodeState.fbSize = Module._cimbard_get_bufsize();
+  decodeState.fbPtr = Module._malloc(decodeState.fbSize);
+  decodeState.filenamePtr = Module._malloc(4096);
+  decodeState.decompSize = Module._cimbard_get_decompress_bufsize();
+  decodeState.decompPtr = Module._malloc(decodeState.decompSize);
+}
+
+// 渲染一帧编码器输出, 经 WebGL readPixels 取 RGBA (模拟屏幕/摄像头像素), 走解码管线;
+// 返回 fountain_decode 的完成 id (0 未完成)
+function pumpOneFrame() {
+  Module._cimbare_next_frame(0);
+  Module._cimbare_render();
+  const canvas = $('cimbar');
+  const w = canvas.width, h = canvas.height;
+  if (!w || !h) throw new Error('canvas not sized');
+  const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+  if (!gl) throw new Error('no webgl context');
+
+  const raw = new Uint8Array(w * h * 4);
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+  // GL 原点在左下, 翻转为屏幕方向 (顶行在前)
+  const img = new Uint8Array(w * h * 4);
+  const rowBytes = w * 4;
+  for (let y = 0; y < h; y++) {
+    img.set(raw.subarray(y * rowBytes, (y + 1) * rowBytes), (h - 1 - y) * rowBytes);
+  }
+
+  const imgPtr = Module._malloc(img.length);
+  new Uint8Array(Module.HEAPU8.buffer, imgPtr, img.length).set(img);
+  const len = Module._cimbard_scan_extract_decode(imgPtr, w, h, 4, decodeState.fbPtr, decodeState.fbSize);
+  Module._free(imgPtr);
+
+  decodeState.framesFed += 1;
+  if (len <= 0) return 0; // 提取失败或无数据
+  decodeState.extracted += 1;
+  const res = Module._cimbard_fountain_decode(decodeState.fbPtr, len);
+  if (res > 0n) {
+    return Number(res & 0xFFFFFFFFn);
+  }
+  return 0;
+}
+// 与 recv.html Sink.handleCompleted 同语义: recover + 流式解压
+function collectCompleted(id) {
+  const fnLen = Module._cimbard_get_filename(id, decodeState.filenamePtr, 4096);
+  let name;
+  if (fnLen > 0) {
+    name = new TextDecoder('utf-8').decode(heapView(decodeState.filenamePtr, fnLen));
+  }
+  if (!name) name = 'stream-' + id;
+
+  const parts = [];
+  let total = 0;
+  while (true) {
+    const n = Module._cimbard_decompress_read(id, decodeState.decompPtr, decodeState.decompSize);
+    if (n <= 0) break;
+    parts.push(heapView(decodeState.decompPtr, n).slice());
+    total += n;
+  }
+
+  const bytes = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { bytes.set(p, off); off += p.length; }
+  decodeState.files.set(name, bytes);
+  decodeState.completed += 1;
+  log(`  complete id=${id} -> "${name}" (${total} B)`);
+  return name;
+}
+
+// 编码 + 循环渲染一个流直到 fountain 完成 (上限 maxFrames)
+async function transmitOneStream(name, bytes, encodeId, maxFrames) {
+  const r1 = initEncode(name, encodeId);
+  if (r1 < 0) throw new Error(`init_encode(${name}) -> ${r1}`);
+  feedAll(bytes);
+  const t0 = decodeState.framesFed;
+  for (let i = 0; i < maxFrames; i++) {
+    const doneId = pumpOneFrame();
+    if (doneId > 0) {
+      const gotName = collectCompleted(doneId);
+      if (gotName !== name) {
+        throw new Error(`name mismatch: expected "${name}", got "${gotName}"`);
+      }
+      return i + 1;
+    }
+  }
+  throw new Error(`stream "${name}" not completed after ${maxFrames} frames (${decodeState.framesFed - t0} fed, ${decodeState.extracted} extracted)`);
+}
+
+// ---------- 默认测试: manifest + 2 chunks 多 stream ----------
+async function runTest() {
+  const FILE_SIZE = 256 * 1024;
+  const CHUNK_SIZE = 128 * 1024;
+  const FILENAME = 'pipeline-test.bin';
+  const ENCODE_ID_BASE = 5000; // 避开上游默认 109 自动递增, 用显式 base
+
+  log('== wasm pipeline test: manifest + 2 chunks ==');
+  log(`file=${FILE_SIZE} B, chunk=${CHUNK_SIZE} B, encode_id_base=${ENCODE_ID_BASE}`);
+
+  const fileBytes = randomBytes(FILE_SIZE, 0x5EED);
+  const chunkCount = Math.ceil(FILE_SIZE / CHUNK_SIZE);
+  const chunks = [];
+  for (let i = 0; i < chunkCount; i++) {
+    chunks.push(fileBytes.subarray(i * CHUNK_SIZE, Math.min((i + 1) * CHUNK_SIZE, FILE_SIZE)).slice());
+  }
+  const padW = chunkCount < 100 ? 2 : chunkCount < 1000 ? 3 : 4;
+  const basename = stripExt(FILENAME);
+  const chunkMeta = [];
+  for (let i = 0; i < chunkCount; i++) {
+    chunkMeta.push({ index: i, size: chunks[i].length, sha256: await sha256Hex(chunks[i]) });
+  }
+  const manifest = {
+    version: 1,
+    tool: 'cimbar-bigfile',
+    filename: FILENAME,
+    total_size: FILE_SIZE,
+    sha256: await sha256Hex(fileBytes),
+    chunk_size: CHUNK_SIZE,
+    chunk_count: chunkCount,
+    encode_id_base: ENCODE_ID_BASE,
+    chunks: chunkMeta,
+  };
+  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifest));
+  log(`manifest=${manifestBytes.length} B, chunks=${chunkCount}`);
+
+  const jobs = [
+    { name: 'manifest.json', bytes: manifestBytes, id: ENCODE_ID_BASE + 0 },
+  ];
+  for (let i = 0; i < chunkCount; i++) {
+    jobs.push({ name: `${basename}.part${String(i).padStart(padW, '0')}.bin`, bytes: chunks[i], id: ENCODE_ID_BASE + 1 + i });
+  }
+
+  for (const job of jobs) {
+    const frames = await transmitOneStream(job.name, job.bytes, job.id, 400);
+    log(`sent "${job.name}": ${frames} frames`, 'ok');
+  }
+
+  // 校验 + 拼接
+  const m2 = JSON.parse(new TextDecoder().decode(decodeState.files.get('manifest.json')));
+  if (m2.chunk_count !== chunkCount) throw new Error('manifest chunk_count mismatch');
+  const buffers = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const name = `${basename}.part${String(i).padStart(padW, '0')}.bin`;
+    const got = decodeState.files.get(name);
+    if (!got) throw new Error(`missing ${name}`);
+    const sha = await sha256Hex(got);
+    if (sha !== m2.chunks[i].sha256) throw new Error(`chunk ${i} SHA256 mismatch`);
+    buffers.push(got);
+  }
+  const out = new Uint8Array(FILE_SIZE);
+  let off = 0;
+  for (const b of buffers) { out.set(b, off); off += b.length; }
+  const finalSha = await sha256Hex(out);
+  if (finalSha !== m2.sha256) throw new Error(`full SHA256 mismatch: ${finalSha} vs ${m2.sha256}`);
+
+  log(`PASS: ${chunkCount + 1} streams decoded, reassembled ${FILE_SIZE} B, SHA256 verified`, 'ok');
+  log(`frames fed=${decodeState.framesFed}, extracted=${decodeState.extracted}, completed=${decodeState.completed}`);
+  window.__pipelineResult = 'PASS';
+}
+
+// 供外部 (browser 工具 / e2e 测试) 驱动
+window.__pipeline = {
+  randomBytes, sha256Hex, stripExt, initEncode, feedAll, pumpOneFrame, collectCompleted,
+  transmitOneStream, allocDecode, decodeState,
+};
+
+window.Module = {
+  canvas: $('cimbar'),
+  onRuntimeInitialized: function () {
+    log('wasm ready', 'ok');
+    Module._cimbare_configure(68, -1); // 编码器 Mode B
+    Module._cimbard_configure_decode(68); // 解码器 Mode B (同一实例, 共享 Config)
+    allocDecode();
+    runTest().then(() => {
+      log('done');
+    }).catch((e) => {
+      log('FAIL: ' + (e && e.message ? e.message : e), 'err');
+      window.__pipelineResult = 'FAIL';
+    });
+  },
+  print: function (text) { /* fountain_decode 每次都会 stdout 打印, 太吵 */ },
+  printErr: function (text) { log('[wasm err] ' + text, 'warn'); },
+};
+  </script>
+  <script src="../vendor/cimbar-wasm-v0.6.4/cimbar_js.2026-01-20T0312.js"></script>
+</body>
+</html>

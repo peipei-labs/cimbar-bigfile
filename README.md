@@ -1,6 +1,6 @@
 **中文** | [English](README.en.md)
 
-🚀 **在线试用**：[发送端](https://xpeipeix.github.io/cimbar-bigfile/send.standalone.html) · [拼接端](https://xpeipeix.github.io/cimbar-bigfile/reassemble.html) · [离线下载](https://github.com/xPeiPeix/cimbar-bigfile/releases/latest)
+🚀 **在线试用**：[发送端](https://xpeipeix.github.io/cimbar-bigfile/send.standalone.html) · [PC 接收端](https://xpeipeix.github.io/cimbar-bigfile/recv.standalone.html) · [拼接端](https://xpeipeix.github.io/cimbar-bigfile/reassemble.html) · [离线下载](https://github.com/xPeiPeix/cimbar-bigfile/releases/latest)
 
 # cimbar-bigfile
 
@@ -14,19 +14,43 @@
 
 ```
 [发送端 send.html]  →  屏幕动画  →  [手机 CFC]  →  保存 N 个块  →  [拼接 reassemble.html]  →  原文件
+[发送端 send.html]  →  屏幕动画  →  [PC 接收端 recv.html (摄像头或屏幕捕获)]  →  自动拼接 + 下载原文件
 ```
 
 ## 用法
-
 ### 准备
 
-1. **接收端**：手机安装 [CameraFileCopy](https://github.com/sz3/cfc/releases) (F-Droid / Google Play / GitHub Release APK)
+1. **接收端（二选一）**：
+   - **PC 接收端（本仓库新增，推荐无手机场景）**：双击打开 `recv.standalone.html`（自包含单文件，无需联网），用**摄像头**对准发送端屏幕，或用**屏幕/窗口捕获**直接抓取发送端窗口（见下文 [PC 接收端](#pc-接收端-recvhtml)）
+   - **手机**：安装 [CameraFileCopy](https://github.com/sz3/cfc/releases) (F-Droid / Google Play / GitHub Release APK)
 2. **发送端**：电脑浏览器双击打开 `send.standalone.html`（自包含单文件版，无需联网，**推荐**）
-3. **拼接端**：任意浏览器双击打开 `reassemble.html`（零依赖纯 JS，无需联网）
+3. **拼接端**：手机接收方案需要；PC 接收端**自动拼接**，无需此步骤。任意浏览器双击打开 `reassemble.html`（零依赖纯 JS，无需联网）
 
-> 也可以用模块化的 `send.html`（开发版），但需要先起本地 HTTP server（见下文 [开发](#开发) 段），因为浏览器在 `file://` 协议下会拦截 wasm 文件加载。普通用户用 standalone 版更简单。
+> 也可以用模块化的 `send.html` / `recv.html`（开发版），但需要先起本地 HTTP server（见下文 [开发](#开发) 段），因为浏览器在 `file://` 协议下会拦截 wasm 文件加载。普通用户用 standalone 版更简单。
 
-发送页和拼接页的界面**默认使用英文**。点击页面右上角的 `中文` / `EN` 按钮可以随时切换语言；浏览器会记住选择，刷新或下次打开页面时继续使用所选语言。
+发送页、接收页和拼接页的界面**默认使用英文**。点击页面右上角的 `中文` / `EN` 按钮可以随时切换语言；浏览器会记住选择，刷新或下次打开页面时继续使用所选语言。
+
+## PC 接收端 (recv.html)
+
+不想用手机时，PC 浏览器也能当接收端：`recv.standalone.html` 内置 libcimbar wasm 解码器（复用 vendor 版 `recv-worker` 提取 + 主线程 fountain 解码，原生支持多 stream 分桶），收到全部块后**自动校验 SHA256、拼接并下载原文件**，无需再把文件倒腾到别处。
+
+### 两种捕获来源
+
+| 来源 | 适用场景 | 要点 |
+|---|---|---|
+| 📷 **摄像头** | 两台设备之间（另一台电脑/手机屏幕播放动画） | 对准发送端屏幕，保持稳定、光线充足 |
+| 🖥️ **屏幕 / 窗口捕获** | 同一台电脑（发送窗口 + 接收窗口并排） | 选择发送端窗口；**保持窗口可见、不要最小化**（窗口捕获在部分遮挡时仍有效，但最小化会停止出帧） |
+
+### 使用
+
+1. 双击打开 `recv.standalone.html`，等解码器就绪（显示 "WASM decoder ready"）
+2. 点 `📷 Camera` 或 `🖥️ Screen / window` 选择来源；屏幕捕获会弹出浏览器选择器，选发送端窗口即可
+3. 页面实时显示活跃 stream 进度；manifest 收到后展示预期文件清单和每块 ✓ 状态
+4. 全部块收齐后**自动拼接 + 校验 + 下载**原文件（每个分块也有单独 ⬇ 下载按钮，便于备份或重发排错）
+
+> 与 CFC 一样，接收窗口必须保持可见：浏览器对不可见页面的渲染/回调会节流，隐藏窗口会停止解码。若窗口短暂被遮挡，rVFC 看门狗会自动切换到 rAF 回退路径继续解码。
+
+> 手机 CFC 接收流程见下文 [接收](#接收手机-cfc) / [拼接](#拼接仅大文件需要)；PC 接收端已在上方完成，自动拼接，无需 reassemble.html。
 
 ### 发送
 
@@ -80,7 +104,9 @@
 - 退出全屏会解除本次全屏自动施加的锁；进入全屏前已有的手动锁会保留
 - 点击停止传输时会自动退出全屏
 
-### 接收
+### 接收（手机 CFC）
+
+> PC 接收端用户跳过本段：`recv.html` 已自动完成接收与拼接（见上文 [PC 接收端](#pc-接收端-recvhtml)）。
 
 1. 手机打开 CFC，对着电脑屏幕
 2. 每完成一块，CFC 会弹出"保存到哪里"对话框
@@ -102,9 +128,11 @@
 
 ## 已知限制
 
-- **每块完成 CFC 弹一次保存对话框**：10MB / 块时，100MB 文件需要点 11 次"保存"。
+- **每块完成 CFC 弹一次保存对话框**：10MB / 块时，100MB 文件需要点 11 次"保存"（PC 接收端 `recv.html` 无此问题，全程自动）。
 - **吞吐量**：约 **106 KB/s**（libcimbar Mode B 默认）。100MB 文件预计耗时 16-20 分钟。
-- **接收端推荐 Android CFC**：libcimbar 上游 v0.6.4 release 也带 web 端解码器（即本仓库 `vendor/cimbar-wasm-v0.6.4/recv.html`），但实测大文件（≥ 3MB）会中途停滞（见 [issue #4](https://github.com/xPeiPeix/cimbar-bigfile/issues/4)），且它是单 stream 设计，无法直接消费本仓库的多 stream 分块输出（不支持按 `encode_id` 分桶解码）。
+- **接收窗口必须可见**：PC 接收端与 CFC 一样依赖实时取帧；窗口最小化或完全被遮挡时浏览器会节流回调、停止解码（短暂遮挡有 rAF 回退看门狗兜底）。
+- **内存占用**：PC 接收端把全部已收块保存在浏览器内存里，超大文件（数百 MB 以上）请留意浏览器内存压力。
+- **上游 web 解码器仍不推荐**：libcimbar 上游 v0.6.4 release 自带的 web 解码器（本仓库 `vendor/cimbar-wasm-v0.6.4/recv.html`）实测大文件（≥ 3MB）会中途停滞（见 [issue #4](https://github.com/xPeiPeix/cimbar-bigfile/issues/4)），且它是单 stream 设计，无法消费本仓库的多 stream 分块输出。**本仓库根目录的 `recv.html` / `recv.standalone.html` 是重写实现**：原生多 stream 分桶 + 完成即回收 slot + 自动拼接，与上游那个不同。
 
 ## 故障排除
 
@@ -114,7 +142,9 @@
 | CFC 扫描很慢 | 帧率太高摄像头跟不上 | send.html 把 FPS 调到 10-12 |
 | 某些块没收到 | fountain 冗余不够 | send.html 把 "冗余" 调到 2.0 或更高，让发送端给每块多发些帧 |
 | 拼接 SHA256 校验失败 | 某块在传输中损坏 | 看哪块失败 → 重新发送（用同一 encode_id_base 重启 send.html，跳到那块） |
-| 浏览器加载 wasm 失败 | file:// 协议被 CORS 拦截（开发版 `send.html` 才有此问题） | 改用 `send.standalone.html`（双击即可），或用本地 HTTP server：`python -m http.server 8000` 访问 `http://localhost:8000/send.html` |
+| PC 接收端收不到任何码 | 摄像头没对准/失焦；窗口捕获选了错误来源 | 对准发送端屏幕（10-30cm、最高亮度）；屏幕捕获确认选的是发送端窗口 |
+| PC 接收端中途停止 | 接收窗口被最小化/完全遮挡 | 保持窗口可见；短暂遮挡会自动恢复（看门狗切 rAF） |
+| 浏览器加载 wasm 失败 | file:// 协议被 CORS 拦截（开发版 `send.html`/`recv.html` 才有此问题） | 改用 `*.standalone.html`（双击即可），或用本地 HTTP server：`python -m http.server 8000` |
 | 文件名乱码 | 系统字符编码问题 | manifest 强制 UTF-8，检查浏览器/手机系统编码 |
 | 浏览器卡顿 | 文件太大 wasm 堆压力 | 降低单块大小（默认 10MB → 5MB） |
 | 总扫描时间太长 | CFC 每次保存重置 fountain 状态，发送方循环导致命中靠运气 | 用新加的「跳转按钮」主动指定下一个目标 chunk（见上方"加速接收"段） |
@@ -178,24 +208,33 @@ libcimbar 作者在 [sz3/libcimbar#165 评论](https://github.com/sz3/libcimbar/
 - [docs/manifest-spec.md](docs/manifest-spec.md) - manifest JSON 字段语义
 - [docs/architecture.md](docs/architecture.md) - 数据流、wasm API、设计决策
 
-### 本地测试发送端
+### 本地测试发送端 / 接收端
 
 ```bash
 # 起本地 HTTP 服务器（避免 file:// CORS 问题）
 python -m http.server 8000
-# 浏览器访问 http://localhost:8000/send.html
+# 浏览器访问 http://localhost:8000/send.html（发送端）
+# 浏览器访问 http://localhost:8000/recv.html（PC 接收端）
 ```
+
+### wasm 编解码管线测试
+
+[`scripts/pipeline-test.html`](scripts/pipeline-test.html) 是开发用测试页：在浏览器里跑通 编码 → canvas 渲染 → 提取 → fountain 解码 → 多 stream 分桶 → 拼接 + SHA256 校验 的完整数据路径（不经过光学链路）。需要本地 HTTP server 后访问 `http://localhost:8000/scripts/pipeline-test.html`，页面日志输出 `PASS` 即通过。它同时向外部暴露 `window.__pipeline` 辅助函数，可被自动化测试驱动。
+
+### 采集回归测试
+
+运行 `node --test scripts/test-recv-capture.js`，检查停止／重启、延迟帧、Worker 返回结果、看门狗切换，以及像素格式和尺寸匹配。测试使用可控的浏览器 API 替身；真实摄像头的对焦、光照和传输效果需要在设备上验证。
 
 ### 构建自包含单文件版
 
-`send.standalone.html` 是给最终用户的"双击即用"版本，把 vendor wasm + glue js 都 base64 inline 进 HTML，脱离 HTTP server。每次升级 vendor 后必须重新构建：
+`send.standalone.html` 和 `recv.standalone.html` 是给最终用户的"双击即用"版本，把 vendor wasm + glue js 都 base64 inline 进 HTML，脱离 HTTP server。每次升级 vendor 后必须重新构建：
 
 ```bash
 PYTHONIOENCODING=utf-8 PYTHONUTF8=1 python scripts/build-standalone.py
-# 输出 send.standalone.html (约 2.5 MB)
+# 输出 send.standalone.html (约 2.6 MB) + recv.standalone.html (约 5 MB)
 ```
 
-构建脚本只读 `send.html` + `vendor/cimbar-wasm-v0.6.4/cimbar_js.*.js` + `cimbar_js.*.wasm`，输出独立文件到仓库根目录。原理：替换 `<script src="vendor/...">` 为 inline `<script>` 把 base64 解码成 `Module.wasmBinary`，emscripten glue 检测到就跳过 fetch。
+构建脚本只读 `send.html` / `recv.html` + `vendor/cimbar-wasm-v0.6.4/cimbar_js.*.js` + `cimbar_js.*.wasm` + `recv-worker.*.js`，输出独立文件到仓库根目录。原理：替换 `<script src="vendor/...">` 为 inline `<script>` 把 base64 解码成 `Module.wasmBinary`，emscripten glue 检测到就跳过 fetch。`recv.standalone.html` 额外把解码 worker 打包成 blob worker（file:// 下 worker 不能 importScripts，wasm 同样以 `Module.wasmBinary` 注入）。
 
 ## 架构与协议
 
@@ -208,12 +247,13 @@ cimbar-bigfile 是 libcimbar 之上的轻量包装器。**本仓库由 MIT、MPL
 
 | 部分 | 许可证 | 版权 | 说明 |
 |------|-------|------|------|
-| `send.html` / `reassemble.html` / `docs/*` 等本项目原创代码 | **MIT** | © 2026 peipei | 详见 [`LICENSE`](LICENSE) |
+| `send.html` / `recv.html` / `reassemble.html` / `scripts/*` / `docs/*` 等本项目原创代码 | **MIT** | © 2026 peipei | 详见 [`LICENSE`](LICENSE) |
 | `vendor/cimbar_js.html` / `vendor/cimbar-wasm-v0.6.4/*` | **MPL-2.0** | © sz3 (libcimbar) | 详见 [`vendor/LICENSE-libcimbar`](vendor/LICENSE-libcimbar) |
 | 上述 wasm 内嵌的 wirehair fountain code 库 | **BSD-3-Clause** | © 2018 Christopher A. Taylor | 详见 [`vendor/LICENSE-wirehair`](vendor/LICENSE-wirehair) |
 | 用户独立安装的 CFC Android 接收端 (未 vendor) | **MIT** | © sz3 | 见 [github.com/sz3/cfc](https://github.com/sz3/cfc) |
 
 **MPL-2.0 source obligation**：本项目分发了 libcimbar 的 wasm 二进制（Executable Form），按 MPL-2.0 §3.2，对应的 source code 可在 https://github.com/sz3/libcimbar/tree/v0.6.4 免费获取。
+
 
 ### 致谢
 

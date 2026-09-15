@@ -1,6 +1,6 @@
 [中文](README.md) | **English**
 
-🚀 **Try online**: [Sender](https://xpeipeix.github.io/cimbar-bigfile/send.standalone.html) · [Reassemble](https://xpeipeix.github.io/cimbar-bigfile/reassemble.html) · [Offline download](https://github.com/xPeiPeix/cimbar-bigfile/releases/latest)
+🚀 **Try online**: [Sender](https://xpeipeix.github.io/cimbar-bigfile/send.standalone.html) · [PC Receiver](https://xpeipeix.github.io/cimbar-bigfile/recv.standalone.html) · [Reassemble](https://xpeipeix.github.io/cimbar-bigfile/reassemble.html) · [Offline download](https://github.com/xPeiPeix/cimbar-bigfile/releases/latest)
 
 # cimbar-bigfile
 
@@ -14,19 +14,46 @@ The receiver uses sz3's **CameraFileCopy (CFC)** Android app to scan; CFC's buil
 
 ```
 [Sender send.html]  →  on-screen animation  →  [Phone CFC]  →  N saved chunks  →  [Reassemble reassemble.html]  →  original file
+[Sender send.html]  →  on-screen animation  →  [PC Receiver recv.html (camera or screen capture)]  →  auto reassemble + download
 ```
 
 ## Usage
-
 ### Setup
 
-1. **Receiver**: install [CameraFileCopy](https://github.com/sz3/cfc/releases) on a phone (F-Droid / Google Play / GitHub Release APK)
+1. **Receiver (pick one)**:
+   - **PC Receiver (new in this repo, no-phone option)**: double-click `recv.standalone.html` (self-contained single file, no network needed) and either **point a webcam** at the sender's screen or use **screen/window capture** to grab the sender window directly (see [PC Receiver](#pc-receiver-recvhtml) below)
+   - **Phone**: install [CameraFileCopy](https://github.com/sz3/cfc/releases) (F-Droid / Google Play / GitHub Release APK)
 2. **Sender**: open `send.standalone.html` in a desktop browser (self-contained single file, no network needed, **recommended**)
-3. **Reassembly**: open `reassemble.html` in any browser (zero-dependency vanilla JS, no network needed)
+3. **Reassembly**: only needed for the phone flow; the PC Receiver reassembles automatically. Open `reassemble.html` in any browser (zero-dependency vanilla JS, no network needed)
 
-> You can also use the modular `send.html` (development build), but it requires a local HTTP server (see [Development](#development) below) — browsers block wasm loads under the `file://` scheme. The standalone build is simpler for end users.
+> You can also use the modular `send.html` / `recv.html` (development builds), but they require a local HTTP server (see [Development](#development) below) — browsers block wasm loads under the `file://` scheme. The standalone builds are simpler for end users.
 
-The sender and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; the browser remembers your choice across refreshes and future visits.
+
+The sender, receiver, and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; the browser remembers your choice across refreshes and future visits.
+
+## PC Receiver (recv.html)
+
+No phone? A desktop browser can act as the receiver: `recv.standalone.html` embeds the libcimbar wasm decoder (reuses the vendored `recv-worker` for extraction + main-thread fountain decoding with native multi-stream bucketing). Once every part has arrived it **verifies SHA256s, reassembles, and downloads the original file automatically** — no need to move files anywhere.
+
+### Two capture sources
+
+| Source | Use case | Notes |
+|---|---|---|
+| 📷 **Camera** | Between two devices (the other computer/phone plays the animation) | Aim at the sender's screen; keep it steady with good light |
+| 🖥️ **Screen / window capture** | Same computer (sender window + receiver window side by side) | Pick the sender window; **keep it visible and never minimize it** (window capture tolerates partial occlusion, but a minimized window stops producing frames) |
+
+### Usage
+
+1. Double-click `recv.standalone.html` and wait for "WASM decoder ready"
+2. Click `📷 Camera` or `🖥️ Screen / window`; screen capture opens the browser picker — select the sender window
+3. The page shows live active-stream progress; once the manifest arrives it lists the expected files with a per-chunk ✓ status
+4. When every chunk is in, it **reassembles, verifies, and downloads** the original automatically (each part also has its own ⬇ download button for backup / resend debugging)
+
+> Like CFC, the receiver window must stay visible: browsers throttle callbacks for hidden pages and decoding stops. A short occlusion is fine — an rVFC watchdog switches to an rAF fallback path automatically.
+
+> Phone CFC users: see [Receiving](#receiving-phone-cfc) / [Reassembly](#reassembly-large-files-only) below; the PC Receiver already covers both.
+
+
 
 ### Sending
 
@@ -80,7 +107,9 @@ After transmission starts, click "Fullscreen code" ("全屏显示码图" in Chin
 - Exiting full-screen releases a lock added by guided mode; a manual lock that existed before entering is preserved
 - Stopping the transmission automatically exits full-screen mode
 
-### Receiving
+### Receiving (phone CFC)
+
+> PC Receiver users skip this section: `recv.html` handles reception and reassembly automatically (see [PC Receiver](#pc-receiver-recvhtml)).
 
 1. Open CFC on the phone, point it at the desktop screen
 2. After each chunk completes, CFC shows a "save where" dialog
@@ -102,9 +131,11 @@ The reassembly page also defaults to English and provides the same `中文` / `E
 
 ## Known limitations
 
-- **CFC pops up a save dialog per chunk**: at 10MB / chunk, a 100MB file requires 11 "save" taps.
+- **CFC pops up a save dialog per chunk**: at 10MB / chunk, a 100MB file requires 11 "save" taps (the PC Receiver `recv.html` has no such issue — fully automatic).
 - **Throughput**: about **106 KB/s** (libcimbar Mode B default). 100MB files take an estimated 16-20 minutes.
-- **Receiver: Android CFC recommended**: libcimbar upstream v0.6.4 release also ships a web decoder (this repo's `vendor/cimbar-wasm-v0.6.4/recv.html`), but it stalls mid-decode on larger files (≥ 3MB, see [issue #4](https://github.com/xPeiPeix/cimbar-bigfile/issues/4)), and its single-stream design cannot directly consume this repo's multi-stream chunked output (no per-`encode_id` bucketing).
+- **The receiver window must stay visible**: the PC Receiver depends on live frame capture just like CFC; browsers throttle callbacks for minimized or fully occluded windows and decoding stops (brief occlusions are covered by the rAF fallback watchdog).
+- **Memory**: the PC Receiver keeps all received parts in browser memory; for files of several hundred MB or more, watch browser memory pressure.
+- **Upstream web decoder still not recommended**: libcimbar upstream v0.6.4 ships its own web decoder (this repo's `vendor/cimbar-wasm-v0.6.4/recv.html`), but it stalls mid-decode on larger files (≥ 3MB, see [issue #4](https://github.com/xPeiPeix/cimbar-bigfile/issues/4)) and its single-stream design cannot consume this repo's multi-stream chunked output. **The root-level `recv.html` / `recv.standalone.html` in this repo is a rewrite**: native multi-stream bucketing, slot released on completion, automatic reassembly — not the same page as upstream's.
 
 ## Troubleshooting
 
@@ -114,7 +145,9 @@ The reassembly page also defaults to English and provides the same `中文` / `E
 | CFC scans very slowly | Frame rate too high for the camera | Lower send.html FPS to 10-12 |
 | Some chunks never arrive | Insufficient fountain redundancy | Raise the "redundancy" slider in send.html to 2.0 or higher so the sender emits more frames per chunk |
 | Reassembly SHA256 fails | A chunk was corrupted in transit | Identify the failing chunk → resend it (restart send.html with the same `encode_id_base` and jump to that chunk) |
-| Browser fails to load wasm | `file://` CORS blocked (only the dev `send.html` has this issue) | Use `send.standalone.html` (just double-click), or run a local HTTP server: `python -m http.server 8000` and visit `http://localhost:8000/send.html` |
+| PC Receiver gets nothing | Camera misaimed / out of focus; window capture picked the wrong source | Aim at the sender's screen (10-30 cm, max brightness); for window capture confirm the sender window is selected |
+| PC Receiver stalls midway | The receiver window was minimized / fully occluded | Keep the window visible; brief occlusions recover automatically (watchdog switches to rAF) |
+| Browser fails to load wasm | `file://` CORS blocked (only the dev `send.html`/`recv.html` have this issue) | Use the `*.standalone.html` builds (just double-click), or run a local HTTP server: `python -m http.server 8000` |
 | Garbled filename | System encoding mismatch | manifest enforces UTF-8 — check browser/phone system encoding |
 | Browser stutters | File too big, wasm heap pressure | Lower the chunk size (default 10MB → 5MB) |
 | Total scan time too long | CFC resets fountain state per save, so the sender's looping makes hits luck-based | Use the new "jump buttons" to manually pin the next target chunk (see "Speed up reception" above) |
@@ -178,24 +211,33 @@ See [`vendor/README.md` "Updating to newer libcimbar release"](vendor/README.md#
 - [docs/manifest-spec.md](docs/manifest-spec.md) — manifest JSON field semantics
 - [docs/architecture.md](docs/architecture.md) — data flow, wasm API, design decisions
 
-### Local sender testing
+### Local sender / receiver testing
 
 ```bash
 # Run a local HTTP server (avoids the file:// CORS issue)
 python -m http.server 8000
-# Visit http://localhost:8000/send.html
+# Visit http://localhost:8000/send.html (sender)
+# Visit http://localhost:8000/recv.html (PC receiver)
 ```
 
-### Building the self-contained single-file build
+### wasm pipeline test
 
-`send.standalone.html` is the "double-click and go" build for end users — vendor wasm + glue js are base64-inlined into the HTML so the page no longer needs an HTTP server. Rebuild every time the vendor is upgraded:
+[`scripts/pipeline-test.html`](scripts/pipeline-test.html) is a development test page that runs the full data path in a browser: encode → canvas render → extract → fountain decode → multi-stream bucketing → reassemble + SHA256 verification (no optical link involved). Serve it over a local HTTP server and open `http://localhost:8000/scripts/pipeline-test.html`; the page logs `PASS` on success. It also exposes `window.__pipeline` helpers for driving by automated tests.
+
+### Capture regression tests
+
+Run `node --test scripts/test-recv-capture.js` to check stop/restart behavior, delayed frames, worker replies, watchdog transitions, and pixel format/dimension consistency. These tests use controlled browser API substitutes; camera focus, lighting, and optical transfer performance still need device testing.
+
+### Building the self-contained single-file builds
+
+`send.standalone.html` and `recv.standalone.html` are the "double-click and go" builds for end users — vendor wasm + glue js are base64-inlined into the HTML so the pages no longer need an HTTP server. Rebuild every time the vendor is upgraded:
 
 ```bash
 PYTHONIOENCODING=utf-8 PYTHONUTF8=1 python scripts/build-standalone.py
-# Output: send.standalone.html (~2.5 MB)
+# Output: send.standalone.html (~2.6 MB) + recv.standalone.html (~5 MB)
 ```
 
-The build script reads only `send.html` + `vendor/cimbar-wasm-v0.6.4/cimbar_js.*.js` + `cimbar_js.*.wasm`, and writes a standalone file to the repository root. Mechanism: replace `<script src="vendor/...">` with an inline `<script>` that base64-decodes into `Module.wasmBinary` — emscripten's glue detects this and skips the network fetch.
+The build script reads `send.html` / `recv.html` + `vendor/cimbar-wasm-v0.6.4/cimbar_js.*.js` + `cimbar_js.*.wasm` + `recv-worker.*.js` and emits the standalone files at the repo root. It replaces the `<script src="vendor/...">` tag with an inline `<script>` that base64-decodes into `Module.wasmBinary`, which the emscripten glue detects and uses instead of fetching. `recv.standalone.html` additionally packages the decode worker as a blob worker (`file://` workers cannot `importScripts`; the wasm is injected as `Module.wasmBinary` there too).
 
 ## Architecture & protocol
 
@@ -208,7 +250,7 @@ cimbar-bigfile is a thin wrapper around libcimbar. **This repository is jointly 
 
 | Component | License | Copyright | Notes |
 |-----------|---------|-----------|-------|
-| `send.html` / `reassemble.html` / `docs/*` and other original project code | **MIT** | © 2026 peipei | See [`LICENSE`](LICENSE) |
+| `send.html` / `recv.html` / `reassemble.html` / `scripts/*` / `docs/*` and other original project code | **MIT** | © 2026 peipei | See [`LICENSE`](LICENSE) |
 | `vendor/cimbar_js.html` / `vendor/cimbar-wasm-v0.6.4/*` | **MPL-2.0** | © sz3 (libcimbar) | See [`vendor/LICENSE-libcimbar`](vendor/LICENSE-libcimbar) |
 | The wirehair fountain-code library embedded in the wasm above | **BSD-3-Clause** | © 2018 Christopher A. Taylor | See [`vendor/LICENSE-wirehair`](vendor/LICENSE-wirehair) |
 | The CFC Android receiver (installed independently by the user, not vendored) | **MIT** | © sz3 | See [github.com/sz3/cfc](https://github.com/sz3/cfc) |

@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cimbar-bigfile · Receiver</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    body {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px;
+      overflow-y: auto;
+    }
+    .container { max-width: 1000px; margin: 0 auto; }
+    .topbar {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      gap: 16px; margin-bottom: 16px;
+    }
+    .title-wrap { min-width: 0; }
+    h1 { font-size: 20px; font-weight: 500; margin-bottom: 4px; color: #5fbcff; }
+    .sub { color: #888; font-size: 13px; }
+    .locale-button {
+      flex: 0 0 auto; min-width: 54px; padding: 7px 12px;
+      background: rgba(255,255,255,0.08); color: #ddd;
+      border: 1px solid #555; border-radius: 4px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+    }
+    .locale-button:hover { background: rgba(255,255,255,0.14); border-color: #777; }
+    .locale-button:focus-visible { outline: 2px solid #5fbcff; outline-offset: 2px; }
+
+    .sourcebar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+    .sourcebar button {
+      padding: 8px 16px; background: #4a90e2; color: white; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+    }
+    .sourcebar button:hover:not(:disabled) { background: #5fa3f5; }
+    .sourcebar button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+    .sourcebar button.stop { background: #c0392b; }
+    .sourcebar button.stop:hover:not(:disabled) { background: #e74c3c; }
+    .sourcebar button:disabled.stop { background: #555; }
+    .status-chip {
+      margin-left: auto; font-size: 12px; font-family: monospace;
+      color: #888; white-space: nowrap;
+    }
+    .status-chip .ok { color: #50c878; }
+    .status-chip .warn { color: #f5b942; }
+
+    #videoPanel {
+      position: relative; border-radius: 12px; overflow: hidden;
+      background: #000; margin-bottom: 16px;
+      border: 3px solid #333; transition: border-color 0.3s;
+      min-height: 180px;
+    }
+    #videoPanel.scanning { border-color: #f5b942; }
+    #videoPanel.decoding { border-color: #50c878; }
+    #videoPanel.error { border-color: #e74c3c; }
+    #video {
+      display: block; width: 100%; height: auto; max-height: 420px;
+      object-fit: contain; background: #000;
+    }
+    #videoOverlay {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      pointer-events: none; text-align: center; padding: 16px;
+    }
+    #videoOverlay .hint {
+      background: rgba(0,0,0,0.65); color: #ccc; font-size: 13px;
+      padding: 10px 18px; border-radius: 8px; max-width: 80%;
+    }
+    #videoOverlay.hidden { display: none; }
+
+    .progress-strip {
+      display: flex; gap: 6px; align-items: center; margin-bottom: 16px;
+      font-size: 12px; font-family: monospace; color: #888; flex-wrap: wrap;
+    }
+    .progress-strip .bar {
+      flex: 1; min-width: 120px; height: 6px; background: #2a2a3e; border-radius: 3px; overflow: hidden;
+    }
+    .progress-strip .bar .fill {
+      height: 100%; background: linear-gradient(90deg, #4a90e2, #5fbcff);
+      width: 0%; transition: width 0.3s;
+    }
+
+    .filelist {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 16px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+    .filelist .empty { color: #777; font-size: 13px; text-align: center; padding: 8px; }
+    .filelist .row {
+      display: flex; gap: 8px; align-items: center;
+      padding: 4px 8px; font-size: 13px; font-family: monospace;
+      border-bottom: 1px solid #2a2a3e;
+    }
+    .filelist .row:last-child { border-bottom: none; }
+    .filelist .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .filelist .size { color: #888; }
+    .filelist .state { font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+    .filelist .state.done { background: #50c878; color: #0a0a1a; }
+    .filelist .state.waiting { background: #555; color: #ccc; }
+    .filelist .state.extra { background: #f5b942; color: #0a0a1a; }
+    .filelist .dl {
+      background: #4a90e2; color: white; border: none; border-radius: 3px;
+      padding: 2px 10px; font-size: 11px; cursor: pointer;
+    }
+    .filelist .dl:hover { background: #5fa3f5; }
+
+    .info {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .info h2 { font-size: 14px; color: #5fbcff; margin-bottom: 12px; font-weight: 500; }
+    .info-grid {
+      display: grid; grid-template-columns: auto 1fr;
+      gap: 4px 12px; font-size: 13px;
+    }
+    .info-grid .k { color: #888; }
+    .info-grid .v { font-family: monospace; word-break: break-all; }
+    .info-grid .v.ok { color: #50c878; }
+    .info-grid .v.err { color: #e74c3c; }
+    .info-grid .v.warn { color: #f5b942; }
+
+    .actions {
+      display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .actions button {
+      padding: 8px 16px; background: #4a90e2; color: white; border: none; border-radius: 4px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+    }
+    .actions button:hover:not(:disabled) { background: #5fa3f5; }
+    .actions button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
+    .actions button.secondary { background: #555; }
+    .actions button.secondary:hover:not(:disabled) { background: #666; }
+
+    .log {
+      background: rgba(0,0,0,0.5);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 11px;
+      max-height: 200px;
+      overflow-y: auto;
+      color: #888;
+    }
+    .log .ok { color: #50c878; }
+    .log .err { color: #e74c3c; }
+    .log .warn { color: #f5b942; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <div class="topbar">
+    <div class="title-wrap">
+      <h1 id="pageHeading">📡 cimbar-bigfile · Receiver</h1>
+      <div class="sub" id="pageSubtitle">Point a webcam at the sender's screen, or capture the sender window directly. All received parts are reassembled locally.</div>
+    </div>
+    <button id="btnLocale" class="locale-button" type="button" title="Switch to Chinese" aria-label="Switch to Chinese">中文</button>
+  </div>
+
+  <div class="sourcebar">
+    <button id="btnCamera" type="button" disabled>📷 Camera</button>
+    <button id="btnScreen" type="button" disabled>🖥️ Screen / window</button>
+    <button id="btnStop" class="stop" type="button" disabled>⏹ Stop</button>
+    <span class="status-chip" id="statusChip"></span>
+  </div>
+
+  <div id="videoPanel">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="videoOverlay">
+      <div class="hint" id="videoHint">Loading cimbar decoder…</div>
+    </div>
+  </div>
+
+  <div class="progress-strip" id="progressStrip">
+    <span id="progLabel">0%</span>
+    <div class="bar"><div class="fill" id="progFill"></div></div>
+    <span id="progDetail"></span>
+  </div>
+
+  <div id="filelist" class="filelist">
+    <div class="empty" id="filelistEmpty">No files received yet.</div>
+  </div>
+
+  <div id="info" class="info" style="display:none;"></div>
+
+  <div class="actions">
+    <button id="btnReassemble" type="button" disabled>Reassemble + Verify + Download</button>
+    <button id="btnClear" class="secondary" type="button" disabled>Clear received files</button>
+  </div>
+
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+'use strict';
+
+// ============= i18n =============
+const LOCALE_KEY = 'cimbar-bigfile:locale';
+const SUPPORTED_LOCALES = new Set(['en', 'zh-CN']);
+const TRANSLATIONS = {
+  en: {
+    pageTitle: 'cimbar-bigfile · Receiver',
+    pageHeading: '📡 cimbar-bigfile · Receiver',
+    pageSubtitle: 'Point a webcam at the sender\'s screen, or capture the sender window directly. All received parts are reassembled locally.',
+    cameraBtn: '📷 Camera',
+    screenBtn: '🖥️ Screen / window',
+    stopBtn: '⏹ Stop',
+    localeButton: '中文',
+    localeTitle: 'Switch to Chinese',
+    wasmLoading: 'Loading cimbar decoder…',
+    wasmReady: 'WASM decoder ready (Mode B). Choose a capture source.',
+    cameraUnavailable: 'Camera is not available in this browser.',
+    screenUnavailable: 'Screen capture is not available in this browser.',
+    cameraFailed: 'Failed to start camera: {error}',
+    screenFailed: 'Failed to start screen capture: {error}',
+    noStream: 'No video stream.',
+    cameraStarted: 'Camera started. Point it at the sender\'s screen.',
+    screenStarted: 'Screen capture started. Select the sender window. Keep it visible and not minimized.',
+    sourceEnded: 'Capture source stopped (ended by user or system).',
+    stopped: 'Stopped.',
+    noSource: 'No capture source selected.',
+    waitingCamera: 'Awaiting camera permission…',
+    waitingScreen: 'Choose the sender window/tab/screen in the browser picker…',
+    workersReady: '{count} decode worker(s) ready.',
+    decoding: 'Decoding Mode B',
+    activityIdle: 'idle',
+    activityScanning: 'scanning…',
+    activityDecoding: 'DECODING',
+    frames: 'frames: {n}',
+    activeStreams: 'streams: {n} · max {pct}%',
+    noActiveStreams: 'streams: 0',
+    receivedFile: 'Received {name} ({size})',
+    receivedFileIn: 'Received {name} ({size}) in {time}',
+    fileReplaced: 'Replaced previously received "{name}" with a new copy.',
+    manifestDetected: 'Manifest received: {filename} ({size}), {count} chunks.',
+    waitingForChunks: 'Waiting for {n} more chunk(s).',
+    allChunksDone: 'All {count} chunk(s) received. Reassembling…',
+    autoReassembled: 'Auto-reassembled and verified.',
+    reassembleButton: 'Reassemble + Verify + Download',
+    reassembleTitle: 'Reassemble, verify, and download the original file',
+    clearButton: 'Clear received files',
+    clearTitle: 'Clear all received files and logs',
+    badgeManifest: 'MANIFEST',
+    badgePart: 'PART {index}',
+    badgeUnknown: 'UNKNOWN',
+    manifestInfoTitle: '📋 Manifest details',
+    originalFilename: 'Original filename:',
+    originalSize: 'Original size:',
+    originalSha256: 'Original SHA256:',
+    chunkSize: 'Chunk size:',
+    chunkCount: 'Chunk count:',
+    encodeIdBase: 'Encode ID base:',
+    receivedChunks: 'Received chunks:',
+    missingChunks: 'Missing chunks:',
+    unknownFiles: 'Unrecognized files:',
+    manifestRecovered: 'Manifest recovered by content from "{filename}"',
+    manifestOk: 'Manifest OK: {filename}, {size}, chunks: {count}',
+    manifestToolUnexpected: 'Manifest.tool="{tool}", expected "cimbar-bigfile". Continuing anyway.',
+    manifestVersionUnsupported: 'Unsupported manifest version: {version}. This tool understands version 1.',
+    manifestMalformed: 'Malformed manifest: chunks array length {length} != chunk_count {count}',
+    manifestParseFailed: 'Failed to parse manifest: {error}',
+    cannotReassemble: 'Cannot reassemble: missing chunks or manifest',
+    reassemblyStart: 'Starting reassembly: {filename} ({size})',
+    missingChunk: 'Missing chunk {index}',
+    chunkSizeMismatch: 'Chunk {index} size mismatch: file={actual}, expected={expected}',
+    chunkShaMismatch: 'Chunk {index} SHA256 mismatch! expected={expected}, got={actual}',
+    fileCorrupted: 'File "{filename}" may be corrupted. Re-receive this chunk.',
+    chunkOk: 'Chunk {index} OK ({size}, {sha}…)',
+    concatenating: 'Concatenating chunks…',
+    totalSizeMismatch: 'Total size mismatch: concatenated={actual}, manifest={expected}',
+    verifyingFullSha: 'Verifying full-file SHA256…',
+    fullShaMismatch: 'FULL FILE SHA256 MISMATCH! expected={expected}, got={actual}',
+    fullShaImpossible: 'This should never happen if all chunk SHA256s passed. Possible manifest corruption.',
+    fullShaVerified: 'Full-file SHA256 verified: {sha}',
+    downloadDone: '✅ Done! Downloaded as "{filename}"',
+    cleared: 'Cleared',
+    ready: 'Decoder ready. Select a capture source.',
+    downloadTitle: 'Save this file',
+    expectedFiles: 'Expected files',
+    fileOk: 'received',
+    fileWaiting: 'waiting',
+    fileExtra: 'extra',
+    wasmLoadFailed: 'Failed to load cimbar wasm decoder. If you opened this page via file://, use recv.standalone.html or a local HTTP server.',
+    frameQueueFull: 'decode workers busy, dropping frame',
+  },
+  'zh-CN': {
+    pageTitle: 'cimbar-bigfile · 接收端',
+    pageHeading: '📡 cimbar-bigfile · 接收端',
+    pageSubtitle: '用摄像头对准发送端屏幕，或直接捕获发送端窗口。收到的所有分片在本地自动拼接还原。',
+    cameraBtn: '📷 摄像头',
+    screenBtn: '🖥️ 屏幕 / 窗口',
+    stopBtn: '⏹ 停止',
+    localeButton: 'EN',
+    localeTitle: '切换为英文',
+    wasmLoading: '正在加载 cimbar 解码器……',
+    wasmReady: 'WASM 解码器就绪（Mode B）。请选择捕获来源。',
+    cameraUnavailable: '当前浏览器不支持摄像头。',
+    screenUnavailable: '当前浏览器不支持屏幕捕获。',
+    cameraFailed: '启动摄像头失败：{error}',
+    screenFailed: '启动屏幕捕获失败：{error}',
+    noStream: '没有视频流。',
+    cameraStarted: '摄像头已启动，请对准发送端屏幕。',
+    screenStarted: '屏幕捕获已启动，请选择发送端窗口；保持窗口可见、不要最小化。',
+    sourceEnded: '捕获来源已停止（用户或系统结束）。',
+    stopped: '已停止。',
+    noSource: '尚未选择捕获来源。',
+    waitingCamera: '等待摄像头授权……',
+    waitingScreen: '请在弹出的选择器中选择发送端窗口/标签页/屏幕……',
+    workersReady: '已启动 {count} 个解码 worker。',
+    decoding: '正在解码 Mode B',
+    activityIdle: '空闲',
+    activityScanning: '扫描中……',
+    activityDecoding: '解码中',
+    frames: '帧数：{n}',
+    activeStreams: '活跃流：{n} · 最高 {pct}%',
+    noActiveStreams: '活跃流：0',
+    receivedFile: '已收到 {name}（{size}）',
+    receivedFileIn: '已收到 {name}（{size}），用时 {time}',
+    fileReplaced: '用新副本替换了之前收到的“{name}”。',
+    manifestDetected: '已收到 manifest：{filename}（{size}），共 {count} 块。',
+    waitingForChunks: '还差 {n} 块。',
+    allChunksDone: '全部 {count} 块已收齐，正在自动拼接……',
+    autoReassembled: '已自动拼接并校验。',
+    reassembleButton: '开始拼接 + 校验 + 下载',
+    reassembleTitle: '拼接并校验原文件，然后下载',
+    clearButton: '清空已收文件',
+    clearTitle: '清空所有已接收文件和日志',
+    badgeManifest: '清单',
+    badgePart: '分块 {index}',
+    badgeUnknown: '未知',
+    manifestInfoTitle: '📋 manifest 解析结果',
+    originalFilename: '原文件名：',
+    originalSize: '原大小：',
+    originalSha256: '原 SHA256：',
+    chunkSize: '块大小：',
+    chunkCount: '块总数：',
+    encodeIdBase: '编码 ID 起始值：',
+    receivedChunks: '已收到的块：',
+    missingChunks: '缺失的块：',
+    unknownFiles: '未识别文件：',
+    manifestRecovered: '已根据文件内容从“{filename}”恢复 manifest',
+    manifestOk: 'Manifest 正常：{filename}，{size}，共 {count} 块',
+    manifestToolUnexpected: 'Manifest.tool="{tool}"，预期为“cimbar-bigfile”；仍将继续处理。',
+    manifestVersionUnsupported: '不支持 manifest 版本 {version}；此工具仅支持版本 1。',
+    manifestMalformed: 'Manifest 格式错误：chunks 数组长度 {length} != chunk_count {count}',
+    manifestParseFailed: '解析 manifest 失败：{error}',
+    cannotReassemble: '无法拼接：缺少分块或 manifest',
+    reassemblyStart: '开始拼接：{filename}（{size}）',
+    missingChunk: '缺少分块 {index}',
+    chunkSizeMismatch: '分块 {index} 大小不匹配：文件={actual}，预期={expected}',
+    chunkShaMismatch: '分块 {index} 的 SHA256 不匹配！预期={expected}，实际={actual}',
+    fileCorrupted: '文件“{filename}”可能已损坏，请重新接收该分块。',
+    chunkOk: '分块 {index} 校验通过（{size}，{sha}…）',
+    concatenating: '正在拼接分块……',
+    totalSizeMismatch: '总大小不匹配：拼接后={actual}，manifest={expected}',
+    verifyingFullSha: '正在校验完整文件 SHA256……',
+    fullShaMismatch: '完整文件 SHA256 不匹配！预期={expected}，实际={actual}',
+    fullShaImpossible: '所有分块 SHA256 均通过时不应出现此问题，manifest 可能已损坏。',
+    fullShaVerified: '完整文件 SHA256 校验通过：{sha}',
+    downloadDone: '✅ 完成！已下载为“{filename}”',
+    cleared: '已清空',
+    ready: '解码器就绪。请选择捕获来源。',
+    downloadTitle: '保存该文件',
+    expectedFiles: '预期文件',
+    fileOk: '已收到',
+    fileWaiting: '等待中',
+    fileExtra: '额外',
+    wasmLoadFailed: 'cimbar wasm 解码器加载失败。若通过 file:// 打开，请改用 recv.standalone.html 或本地 HTTP server。',
+    frameQueueFull: '解码 worker 繁忙，丢弃帧',
+  },
+};
+
+function $(id) { return document.getElementById(id); }
+function loadLocale() {
+  try {
+    const saved = localStorage.getItem(LOCALE_KEY);
+    if (SUPPORTED_LOCALES.has(saved)) return saved;
+  } catch (e) { /* ignore */ }
+  return 'en';
+}
+let locale = loadLocale();
+function t(key, params = {}) {
+  const template = TRANSLATIONS[locale][key] ?? TRANSLATIONS.en[key] ?? key;
+  return template.replace(/\{(\w+)\}/g, (match, name) => (
+    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name]) : match
+  ));
+}
+function fmtBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  if (n < 1073741824) return (n / 1048576).toFixed(2) + ' MB';
+  return (n / 1073741824).toFixed(2) + ' GB';
+}
+function fmtTime(ms) {
+  if (ms < 1000) return ms + ' ms';
+  if (ms < 60000) return (ms / 1000).toFixed(1) + ' s';
+  return (ms / 60000).toFixed(2) + ' min';
+}
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function appendLogEntry(entry) {
+  const el = $('log');
+  const div = document.createElement('div');
+  if (entry.cls) div.className = entry.cls;
+  const time = new Date(entry.timestamp).toLocaleTimeString(locale);
+  div.textContent = `[${time}] ${t(entry.key, entry.params)}`;
+  el.appendChild(div);
+}
+function renderLogs() {
+  const el = $('log');
+  el.innerHTML = '';
+  for (const entry of State.logs) appendLogEntry(entry);
+  el.scrollTop = el.scrollHeight;
+}
+function log(key, params = {}, cls) {
+  const entry = { key, params, cls, timestamp: Date.now() };
+  State.logs.push(entry);
+  appendLogEntry(entry);
+  $('log').scrollTop = $('log').scrollHeight;
+  console.log('[recv] ' + t(key, params));
+}
+async function sha256Hex(uint8) {
+  const buf = await crypto.subtle.digest('SHA-256', uint8);
+  return Array.from(new Uint8Array(buf))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ============= 状态 =============
+const State = {
+  logs: [],
+  files: new Map(),          // name -> { name, size, bytes, receivedAt }
+  manifest: null,            // parsed manifest object (if received)
+  manifestName: null,        // stored name of the manifest file ('manifest.json')
+  capture: null,             // 'camera' | 'screen' | null
+  stream: null,              // active MediaStream
+  capturing: false,
+  framesSeen: 0,
+  framesDecoded: 0,
+  extractFails: 0,
+  queueDrops: 0,
+  lastActivity: 0,           // last successful decode timestamp
+  activeStreams: 0,
+  maxStreamPct: 0,
+  reassembled: false,
+  progressWatermark: 0,  // 接收阶段进度高水位, 保证进度条单调不回退
+};
+
+const MODE_B = 68;
+const FRAMES_IN_FLIGHT_LIMIT = 20;
+const WORKER_COUNT = Math.min(4, Math.max(1, Math.floor((navigator.hardwareConcurrency || 4) / 2)));
+const FILENAME_BUF = 4096;
+
+// ============= wasm 状态 =============
+let wasmReady = false;
+let wasmFailed = false;
+// wasm 堆缓冲: 只存指针+尺寸, 每次使用创建新视图。
+// 堆增长 (ALLOW_MEMORY_GROWTH) 会替换底层 ArrayBuffer, 长期持有的视图会 detach 导致解码中断。
+let _fountainPtr = 0;
+let _fountainSize = 0;
+let _errPtr = 0;
+let _decompPtr = 0;
+let _decompSize = 0;
+
+function heapView(ptr, size) {
+  return new Uint8Array(Module.HEAPU8.buffer, ptr, size);
+}
+
+// 主线程 fountain sink — 与 vendored 的 recv-worker 配对:
+// worker 只做 scan+extract (图像 -> fountain frame bytes), 主线程做 fountain 解码。
+const Sink = {
+  allocate() {
+    const size = Module._cimbard_get_bufsize();
+    if (size > _fountainSize) {
+      if (_fountainPtr) Module._free(_fountainPtr);
+      _fountainPtr = Module._malloc(size);
+      _fountainSize = size;
+    }
+    if (!_errPtr) {
+      _errPtr = Module._malloc(FILENAME_BUF);
+    }
+    if (!_decompPtr) {
+      _decompSize = Module._cimbard_get_decompress_bufsize();
+      _decompPtr = Module._malloc(_decompSize);
+    }
+  },
+
+  onDecode(bytes) {
+    if (!bytes || bytes.length === 0) return;
+    heapView(_fountainPtr, _fountainSize).set(bytes);
+    const res = Module._cimbard_fountain_decode(_fountainPtr, bytes.length);
+    // res 为 BigInt (int64): >0 = 完成的 encode id
+    if (res > 0n) {
+      const id = Number(res & 0xFFFFFFFFn);
+      // 立即同步完成处理: recover (释放 stream slot) + 流式解压。
+      // 必须同步串行 — wasm 端只有一个解压器, 且 slot 不立即释放会被同 slot 等长流污染。
+      Sink.handleCompleted(id);
+    }
+    State.framesDecoded += 1;
+    State.lastActivity = Date.now();
+  },
+
+  getReport() {
+    if (!wasmReady || !_errPtr) return null;
+    const len = Module._cimbard_get_report(_errPtr, FILENAME_BUF);
+    if (len <= 0) return null;
+    const view = heapView(_errPtr, len);
+    try {
+      return JSON.parse(new TextDecoder().decode(view));
+    } catch (e) {
+      return null;
+    }
+  },
+
+  handleCompleted(id) {
+    const t0 = Date.now();
+    // 1. 文件名 — 内部触发 recover(): 释放 slot, 数据进入 _reassembled
+    const fnLen = Module._cimbard_get_filename(id, _errPtr, FILENAME_BUF);
+    let name;
+    if (fnLen > 0) {
+      name = new TextDecoder('utf-8').decode(heapView(_errPtr, fnLen));
+    }
+    if (!name) name = 'stream-' + id;
+
+    const size = Module._cimbard_get_filesize(id);
+
+    // 2. 流式解压到 JS 内存 (decompress_read 每次吐一块, <=0 结束)
+    const parts = [];
+    let total = 0;
+    while (true) {
+      const n = Module._cimbard_decompress_read(id, _decompPtr, _decompSize);
+      if (n <= 0) break;
+      parts.push(heapView(_decompPtr, n).slice());
+      total += n;
+    }
+
+    const bytes = new Uint8Array(total);
+    let off = 0;
+    for (const p of parts) { bytes.set(p, off); off += p.length; }
+    storeReceivedFile(name, bytes);
+    const dt = Date.now() - t0;
+    log('receivedFileIn', { name, size: fmtBytes(bytes.length), time: fmtTime(dt) }, 'ok');
+    void sha256Hex(bytes).then(sha => {
+      console.log('[recv] sha256(' + name + ') = ' + sha);
+    });
+  },
+};
+
+function storeReceivedFile(name, bytes) {
+  const replaced = State.files.has(name);
+  State.files.set(name, { name, size: bytes.length, bytes, receivedAt: Date.now() });
+  if (replaced) log('fileReplaced', { name }, 'warn');
+  renderFileList();
+  if (/^manifest\.json$/i.test(name)) {
+    tryParseManifest().then(() => {
+      renderInfo();
+      maybeAutoReassemble();
+    });
+  } else {
+    maybeAutoReassemble();
+  }
+}
+
+// ============= manifest 解析 =============
+async function tryParseManifest() {
+  let name = null;
+  if (State.files.has('manifest.json')) {
+    name = 'manifest.json';
+  } else if (State.files.has('MANIFEST.JSON')) {
+    name = 'MANIFEST.JSON';
+  } else {
+    // 内容兜底: 在未知文件中找 manifest JSON
+    for (const [fname, f] of State.files) {
+      if (/\.part\d+\.bin$/i.test(fname)) continue;
+      const m = parseManifestBytes(f.bytes);
+      if (m) {
+        beginNewTransfer(m);
+        State.manifestName = fname;
+        log('manifestRecovered', { filename: fname }, 'warn');
+        log('manifestOk', { filename: m.filename, size: fmtBytes(m.total_size), count: m.chunk_count }, 'ok');
+        return;
+      }
+    }
+    State.manifest = null;
+    State.manifestName = null;
+    return;
+  }
+  const f = State.files.get(name);
+  const m = parseManifestBytes(f.bytes);
+  if (m) {
+    beginNewTransfer(m);
+    State.manifestName = name;
+    log('manifestDetected', { filename: m.filename, size: fmtBytes(m.total_size), count: m.chunk_count }, 'ok');
+  } else {
+    State.manifest = null;
+    State.manifestName = null;
+  }
+}
+
+// 新一次传输 (manifest 内容变化): 重置进度高水位与拼接完成标记, 让进度条从头开始
+function beginNewTransfer(m) {
+  const prev = State.manifest;
+  const isNew = !prev || prev.filename !== m.filename || prev.total_size !== m.total_size || prev.sha256 !== m.sha256;
+  State.manifest = m;
+  if (isNew) {
+    State.progressWatermark = 0;
+    State.reassembled = false;
+  }
+}
+
+function parseManifestBytes(bytes) {
+  try {
+    const txt = new TextDecoder().decode(bytes);
+    const m = JSON.parse(txt);
+    if (m.tool !== 'cimbar-bigfile') {
+      log('manifestToolUnexpected', { tool: m.tool }, 'warn');
+    }
+    if (m.version !== 1) {
+      log('manifestVersionUnsupported', { version: m.version }, 'err');
+      return null;
+    }
+    if (!Array.isArray(m.chunks) || m.chunks.length !== m.chunk_count) {
+      log('manifestMalformed', { length: m.chunks?.length, count: m.chunk_count }, 'err');
+      return null;
+    }
+    return m;
+  } catch (e) {
+    log('manifestParseFailed', { error: e.message }, 'err');
+    return null;
+  }
+}
+
+function stripExt(filename) {
+  const lastDot = filename.lastIndexOf('.');
+  return lastDot > 0 ? filename.substring(0, lastDot) : filename;
+}
+
+// 按 manifest 预期文件名匹配已收文件 -> index
+function expectedPartName(m, index) {
+  const padW = m.chunk_count < 100 ? 2 : m.chunk_count < 1000 ? 3 : 4;
+  return stripExt(m.filename) + '.part' + String(index).padStart(padW, '0') + '.bin';
+}
+
+function partIndexByName(name) {
+  const m = name.match(/\.part(\d+)\.bin$/i);
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+function chunkFilesByIndex() {
+  const byIndex = new Map();
+  if (!State.manifest) return byIndex;
+  for (const [fname, f] of State.files) {
+    const idx = partIndexByName(fname);
+    if (idx >= 0 && idx < State.manifest.chunk_count) byIndex.set(idx, f);
+  }
+  return byIndex;
+}
+
+function canReassemble() {
+  if (!State.manifest) return false;
+  const byIndex = chunkFilesByIndex();
+  for (let i = 0; i < State.manifest.chunk_count; i++) {
+    if (!byIndex.has(i)) return false;
+  }
+  return true;
+}
+
+let _autoReassembling = false;
+async function maybeAutoReassemble() {
+  if (_autoReassembling || State.reassembled) return;
+  if (!canReassemble()) {
+    updateProgressUI();
+    return;
+  }
+  _autoReassembling = true;
+  const m = State.manifest;
+  log('allChunksDone', { count: m.chunk_count }, 'ok');
+  await reassemble();
+  _autoReassembling = false;
+}
+
+// ============= 拼接 + 校验 (与 reassemble.html 同语义) =============
+async function reassemble() {
+  if (!canReassemble()) {
+    log('cannotReassemble', {}, 'err');
+    return;
+  }
+  _reassembling = true;
+  $('btnReassemble').disabled = true;
+  const m = State.manifest;
+  const total = m.total_size;
+  log('reassemblyStart', { filename: m.filename, size: fmtBytes(total) }, 'ok');
+
+  const byIndex = chunkFilesByIndex();
+  const buffers = [];
+  try {
+    // 1. 校验每块 SHA256 + 收集字节 (总体进度 95% → 99%)
+    for (let i = 0; i < m.chunk_count; i++) {
+      const expected = m.chunks[i];
+      const f = byIndex.get(i);
+      if (!f) {
+        log('missingChunk', { index: i }, 'err');
+        return;
+      }
+      const bytes = f.bytes;
+      if (bytes.length !== expected.size) {
+        log('chunkSizeMismatch', { index: i, actual: bytes.length, expected: expected.size }, 'err');
+        return;
+      }
+      const sha = await sha256Hex(bytes);
+      if (sha !== expected.sha256) {
+        log('chunkShaMismatch', { index: i, expected: expected.sha256, actual: sha }, 'err');
+        log('fileCorrupted', { filename: f.name }, 'err');
+        return;
+      }
+      log('chunkOk', { index: i, size: fmtBytes(bytes.length), sha: sha.substring(0, 12) }, 'ok');
+      buffers.push(bytes);
+      $('progDetail').textContent = (i + 1) + '/' + m.chunk_count;
+      setProgress(0.95 + 0.04 * (i + 1) / m.chunk_count);
+    }
+
+    // 2. 拼接 (99%)
+    log('concatenating', {}, 'ok');
+    $('progDetail').textContent = t('concatenating');
+    setProgress(0.99);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const buf of buffers) {
+      out.set(buf, offset);
+      offset += buf.length;
+    }
+    if (offset !== total) {
+      log('totalSizeMismatch', { actual: offset, expected: total }, 'err');
+      return;
+    }
+
+    // 3. 全文 SHA256 校验 (99.5%)
+    log('verifyingFullSha', {}, 'ok');
+    $('progDetail').textContent = t('verifyingFullSha');
+    setProgress(0.995);
+    const finalSha = await sha256Hex(out);
+    if (finalSha !== m.sha256) {
+      log('fullShaMismatch', { expected: m.sha256, actual: finalSha }, 'err');
+      log('fullShaImpossible', {}, 'err');
+      return;
+    }
+    setProgress(1);
+    $('progDetail').textContent = '';
+    log('fullShaVerified', { sha: finalSha }, 'ok');
+
+    // 4. 触发下载
+    const blob = new Blob([out], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = m.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    State.reassembled = true;
+    log('downloadDone', { filename: m.filename }, 'ok');
+    log('autoReassembled', {}, 'ok');
+  } finally {
+    // 失败路径也要恢复按钮并让进度回到接收阶段计算值
+    _reassembling = false;
+    $('btnReassemble').disabled = !canReassemble() || State.reassembled;
+    updateProgressUI();
+  }
+  updateUiState();
+}
+
+// ============= 采集: 摄像头 / 屏幕 =============
+const _workers = [];
+const _workerFrames = new WeakMap();
+let _nextWorker = 0;
+let _framesInFlight = 0;
+let _frameCallback = null;
+let _captureGeneration = 0;
+let _fallbackCanvas = null;
+let _fallbackCtx = null;
+let _useFallback = false;
+let _watchdogTimer = null;
+
+function workerCount() { return _workers.length; }
+
+function initWorkers() {
+  // 复用 vendored recv-worker (未修改): worker 内 scan+extract, 把 fountain frame bytes 发回主线程
+  for (let i = 0; i < WORKER_COUNT; i++) {
+    const w = new Worker(WORKER_URL);
+    _workerFrames.set(w, { ready: false, generations: [] });
+    w.onmessage = (event) => onWorkerMessage(w, event.data);
+    w.onerror = (error) => {
+      const pending = _workerFrames.get(w);
+      _framesInFlight = Math.max(0, _framesInFlight - pending.generations.length);
+      pending.generations = [];
+      pending.ready = false;
+      const idx = _workers.indexOf(w);
+      if (idx >= 0) _workers.splice(idx, 1);
+      w.terminate();
+      console.error('[recv] worker error:', error);
+      log('wasmLoadFailed', {}, 'err');
+    };
+    _workers.push(w);
+  }
+}
+
+function onWorkerMessage(worker, data) {
+  const pending = _workerFrames.get(worker);
+  if (data.type === 'startWasm') {
+    if (data.ready) {
+      pending.ready = true;
+      log('workersReady', { count: _workers.length }, 'ok');
+    } else if (data.error) {
+      log('wasmLoadFailed', {}, 'err');
+    }
+    return;
+  }
+  if (pending.generations.length === 0) return;
+  const generation = pending.generations.shift();
+  _framesInFlight = Math.max(0, _framesInFlight - 1);
+  if (!isCurrentCapture(generation)) return;
+  if (data.res) {
+    // 空帧/提取失败: 仅统计
+    if (data.nodata) {
+      State.lastActivity = Date.now(); // 提取成功只是没有数据, 也算"看到码"
+    } else if (data.failed_extract) {
+      State.extractFails += 1;
+    }
+    return;
+  }
+  if (data.buff && data.buff.length > 0) {
+    Sink.onDecode(data.buff);
+  }
+}
+
+function isCurrentCapture(generation) {
+  return State.capturing && generation === _captureGeneration;
+}
+
+function enqueueFrame(pixels, format, width, height, generation) {
+  if (!isCurrentCapture(generation) || !wasmReady) return;
+  const readyWorkers = _workers.filter(w => _workerFrames.get(w).ready);
+  if (readyWorkers.length === 0) return;
+  if (_framesInFlight >= FRAMES_IN_FLIGHT_LIMIT) {
+    State.queueDrops += 1;
+    return;
+  }
+  _framesInFlight += 1;
+  const w = readyWorkers[_nextWorker % readyWorkers.length];
+  _nextWorker = (_nextWorker + 1) % readyWorkers.length;
+  _workerFrames.get(w).generations.push(generation);
+  w.postMessage({ type: 'proc', pixels, format, width, height, mode: MODE_B }, [pixels.buffer]);
+}
+
+// The worker consumes tightly packed NV12, I420 or RGBA pixels at their copied size.
+// Canvas handles scaling, orientation and formats that need color conversion.
+async function copyVideoFrame(vf) {
+  const rect = vf.visibleRect;
+  if (!rect || rect.width !== vf.displayWidth || rect.height !== vf.displayHeight ||
+      vf.rotation || vf.flip) return null;
+  const { width, height } = rect;
+  const format = vf.format;
+  let layout;
+  let size;
+  if (format === 'RGBA') {
+    layout = [{ offset: 0, stride: width * 4 }];
+    size = width * height * 4;
+  } else if ((format === 'NV12' || format === 'I420') && width % 2 === 0 && height % 2 === 0) {
+    const area = width * height;
+    layout = format === 'NV12'
+      ? [{ offset: 0, stride: width }, { offset: area, stride: width }]
+      : [{ offset: 0, stride: width }, { offset: area, stride: width / 2 },
+         { offset: area * 5 / 4, stride: width / 2 }];
+    size = area * 3 / 2;
+  } else {
+    return null;
+  }
+  const options = { rect, layout };
+  if (vf.allocationSize(options) !== size) return null;
+  const pixels = new Uint8Array(size);
+  const copiedLayout = await vf.copyTo(pixels, options);
+  if (copiedLayout.length !== layout.length || copiedLayout.some((plane, i) =>
+      plane.offset !== layout[i].offset || plane.stride !== layout[i].stride)) return null;
+  return { pixels, format, width, height };
+}
+
+async function onFrame(now, generation) {
+  if (!isCurrentCapture(generation) || _useFallback) return;
+  State.framesSeen += 1;
+  if (_workers.length === 0) return;
+
+  const video = $('video');
+  if (!video || video.readyState < 2) {
+    scheduleNextFrame(generation);
+    return;
+  }
+
+  let vf = null;
+  try {
+    vf = new VideoFrame(video, { timestamp: Math.round(now * 1000) });
+    const frame = await copyVideoFrame(vf);
+    if (!isCurrentCapture(generation)) return;
+    if (!frame) {
+      _useFallback = true;
+      fallbackFrameCapture(generation);
+      return;
+    }
+    enqueueFrame(frame.pixels, frame.format, frame.width, frame.height, generation);
+  } catch (e) {
+    if (!isCurrentCapture(generation)) return;
+    console.error('[recv] VideoFrame path failed, falling back:', e);
+    _useFallback = true;
+    fallbackFrameCapture(generation);
+    return;
+  } finally {
+    if (vf) vf.close();
+  }
+  scheduleNextFrame(generation);
+}
+
+function cancelFrameCallback() {
+  if (_watchdogTimer !== null) {
+    clearTimeout(_watchdogTimer);
+    _watchdogTimer = null;
+  }
+  const callback = _frameCallback;
+  _frameCallback = null;
+  if (!callback) return;
+  if (callback.kind === 'video') callback.video.cancelVideoFrameCallback(callback.id);
+  else cancelAnimationFrame(callback.id);
+}
+
+function scheduleNextFrame(generation = _captureGeneration) {
+  const video = $('video');
+  if (!isCurrentCapture(generation) || !video || _frameCallback) return;
+  if (!video.requestVideoFrameCallback || !video.cancelVideoFrameCallback) _useFallback = true;
+  const callback = { kind: _useFallback ? 'animation' : 'video', video, id: null };
+  _frameCallback = callback;
+  const run = (now) => {
+    if (_frameCallback !== callback || !isCurrentCapture(generation)) return;
+    _frameCallback = null;
+    if (_watchdogTimer !== null) clearTimeout(_watchdogTimer);
+    _watchdogTimer = null;
+    if (callback.kind === 'video') void onFrame(now, generation);
+    else fallbackFrameCapture(generation);
+  };
+  if (callback.kind === 'video') {
+    callback.id = video.requestVideoFrameCallback(run);
+    armWatchdog(generation, callback);
+  } else callback.id = requestAnimationFrame(run);
+}
+
+// rVFC 在窗口被遮挡/最小化/节流/无合成器时可能永不回调。
+// 看门狗: 1.5s 无回调 -> 永久切到 rAF + drawImage 路径。
+function armWatchdog(generation, callback) {
+  _watchdogTimer = setTimeout(() => {
+    if (!isCurrentCapture(generation) || _frameCallback !== callback) return;
+    console.warn('[recv] requestVideoFrameCallback stalled, switching to rAF fallback');
+    cancelFrameCallback();
+    _useFallback = true;
+    scheduleNextFrame(generation);
+  }, 1500);
+}
+
+// rAF + drawImage 回退路径 (无 rVFC 或 rVFC 停滞时)
+function fallbackFrameCapture(generation) {
+  if (!isCurrentCapture(generation)) return;
+  const video = $('video');
+  if (!video || video.readyState < 2) {
+    scheduleNextFrame(generation);
+    return;
+  }
+  const w = video.videoWidth, h = video.videoHeight;
+  if (!w || !h) {
+    scheduleNextFrame(generation);
+    return;
+  }
+  if (!_fallbackCanvas) {
+    _fallbackCanvas = document.createElement('canvas');
+    _fallbackCtx = _fallbackCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  if (_fallbackCanvas.width !== w || _fallbackCanvas.height !== h) {
+    _fallbackCanvas.width = w;
+    _fallbackCanvas.height = h;
+  }
+  try {
+    _fallbackCtx.drawImage(video, 0, 0, w, h);
+    const img = _fallbackCtx.getImageData(0, 0, w, h);
+    enqueueFrame(img.data, 'RGBA', w, h, generation);
+  } catch (e) {
+    console.error('[recv] fallback frame capture failed:', e);
+  }
+  scheduleNextFrame(generation);
+}
+
+async function startCapture(kind) {
+  if (State.capturing) stopCapture(false);
+  const generation = ++_captureGeneration;
+  _useFallback = false;
+
+  let stream;
+  try {
+    if (kind === 'camera') {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        log('cameraUnavailable', {}, 'err');
+        return;
+      }
+      setVideoHint('waitingCamera');
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
+          frameRate: { ideal: 30, min: 5 },
+        },
+      });
+      log('cameraStarted', {}, 'ok');
+    } else {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        log('screenUnavailable', {}, 'err');
+        return;
+      }
+      setVideoHint('waitingScreen');
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        audio: false,
+        video: { frameRate: { ideal: 30 } },
+      });
+      log('screenStarted', {}, 'ok');
+    }
+  } catch (err) {
+    if (generation !== _captureGeneration) return;
+    if (err && err.name === 'NotAllowedError') return; // 用户取消选择器
+    log(kind === 'camera' ? 'cameraFailed' : 'screenFailed', { error: err && err.message ? err.message : String(err) }, 'err');
+    return;
+  }
+
+  if (generation !== _captureGeneration) {
+    if (stream) for (const track of stream.getTracks()) track.stop();
+    return;
+  }
+  if (!stream || !stream.getVideoTracks().length) {
+    log('noStream', {}, 'err');
+    return;
+  }
+  State.stream = stream;
+  State.capture = kind;
+  State.capturing = true;
+  stream.getVideoTracks()[0].addEventListener('ended', () => {
+    if (State.stream === stream && isCurrentCapture(generation)) {
+      void stopCapture(true);
+    }
+  });
+
+  const video = $('video');
+  video.srcObject = stream;
+  try {
+    await video.play();
+  } catch (e) {
+    console.error('[recv] video.play() failed:', e);
+  }
+  if (!isCurrentCapture(generation)) return;
+  setVideoHint(null);
+  scheduleNextFrame(generation);
+  updateUiState();
+}
+
+function stopCapture(sourceEnded) {
+  State.capturing = false;
+  _captureGeneration += 1;
+  cancelFrameCallback();
+  if (State.stream) {
+    for (const track of State.stream.getTracks()) track.stop();
+  }
+  State.stream = null;
+  const video = $('video');
+  if (video) video.srcObject = null;
+  State.capture = null;
+  if (sourceEnded) log('sourceEnded', {}, 'warn');
+  else log('stopped', {}, 'ok');
+  setVideoHint(null);
+  updateUiState();
+}
+
+function setVideoHint(key) {
+  const overlay = $('videoOverlay');
+  if (!key) {
+    overlay.classList.add('hidden');
+    return;
+  }
+  overlay.classList.remove('hidden');
+  $('videoHint').textContent = t(key);
+}
+
+// ============= UI =============
+function renderFileList() {
+  const el = $('filelist');
+  const empty = $('filelistEmpty');
+  el.innerHTML = '';
+  el.appendChild(empty);
+
+  const rows = [];
+  if (State.files.size === 0) {
+    empty.style.display = 'block';
+    empty.textContent = t('ready');
+  } else {
+    empty.style.display = 'none';
+  }
+
+  const m = State.manifest;
+  const byIndex = chunkFilesByIndex();
+  const classified = new Set([State.manifestName]);
+  for (const idx of byIndex.keys()) classified.add(expectedPartName(m, idx));
+
+  // 先列 manifest, 再按 index 列预期分块, 最后列额外文件
+  if (State.manifestName && State.files.has(State.manifestName)) {
+    rows.push(makeFileRow(State.files.get(State.manifestName), 'manifest'));
+  }
+  if (m) {
+    for (let i = 0; i < m.chunk_count; i++) {
+      const name = expectedPartName(m, i);
+      const f = byIndex.get(i);
+      if (f) {
+        rows.push(makeFileRow(f, 'chunk', i));
+        classified.add(name);
+      } else {
+        rows.push(makeWaitingRow(name, i));
+      }
+    }
+  }
+  for (const [name, f] of State.files) {
+    if (classified.has(name)) continue;
+    rows.push(makeFileRow(f, 'unknown'));
+  }
+
+  for (const row of rows) el.appendChild(row);
+  updateUiState();
+}
+
+function makeFileRow(f, kind, index) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  let badge, badgeClass;
+  if (kind === 'manifest') {
+    badge = t('badgeManifest'); badgeClass = 'done';
+  } else if (kind === 'chunk') {
+    badge = t('badgePart', { index }); badgeClass = 'done';
+  } else {
+    badge = t('badgeUnknown'); badgeClass = 'extra';
+  }
+  row.innerHTML = `
+    <span class="state ${badgeClass}">${escapeHtml(badge)}</span>
+    <span class="name" title="${escapeHtml(f.name)}">${escapeHtml(f.name)}</span>
+    <span class="size">${fmtBytes(f.size)}</span>
+  `;
+  const dl = document.createElement('button');
+  dl.className = 'dl';
+  dl.textContent = '⬇';
+  dl.title = t('downloadTitle');
+  dl.addEventListener('click', () => downloadStoredFile(f));
+  row.appendChild(dl);
+  return row;
+}
+
+function makeWaitingRow(name, index) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `
+    <span class="state waiting">${escapeHtml(t('badgePart', { index }))}</span>
+    <span class="name" style="opacity:0.5">${escapeHtml(name)}</span>
+    <span class="size">${t('fileWaiting')}</span>
+  `;
+  return row;
+}
+
+function downloadStoredFile(f) {
+  const blob = new Blob([f.bytes], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = f.name;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function renderInfo() {
+  const el = $('info');
+  if (!State.manifest) {
+    el.style.display = 'none';
+    return;
+  }
+  el.style.display = 'block';
+  const m = State.manifest;
+  const byIndex = chunkFilesByIndex();
+  const missing = [];
+  for (let i = 0; i < m.chunk_count; i++) {
+    if (!byIndex.has(i)) missing.push(i);
+  }
+  const ok = missing.length === 0;
+  el.innerHTML = `
+    <h2>${t('manifestInfoTitle')}</h2>
+    <div class="info-grid">
+      <span class="k">${t('originalFilename')}</span> <span class="v">${escapeHtml(m.filename)}</span>
+      <span class="k">${t('originalSize')}</span> <span class="v">${fmtBytes(m.total_size)}</span>
+      <span class="k">${t('originalSha256')}</span> <span class="v">${escapeHtml(String(m.sha256))}</span>
+      <span class="k">${t('chunkSize')}</span> <span class="v">${fmtBytes(m.chunk_size)}</span>
+      <span class="k">${t('chunkCount')}</span> <span class="v">${m.chunk_count}</span>
+      <span class="k">${t('encodeIdBase')}</span> <span class="v">${escapeHtml(String(m.encode_id_base))}</span>
+      <span class="k">${t('receivedChunks')}</span> <span class="v ${ok ? 'ok' : 'err'}">${m.chunk_count - missing.length}/${m.chunk_count}</span>
+      ${missing.length > 0 ? `<span class="k">${t('missingChunks')}</span> <span class="v err">${missing.join(', ')}</span>` : ''}
+    </div>
+  `;
+}
+
+// 统一进度渲染: 接收阶段 0→95% (按已完成块 + 活跃流进度, 高水位单调), 拼接校验阶段由 reassemble() 以 95→100% 覆盖。
+// _reassembling 期间 updateProgressUI 不再自行计算, 避免覆盖拼接进度。
+let _reassembling = false;
+
+function setProgress(fraction) {
+  const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+  $('progLabel').textContent = pct + '%';
+  $('progFill').style.width = pct + '%';
+}
+function updateProgressUI() {
+  if (_reassembling) return;
+  if (!State.manifest) {
+    // simpleMode (无 manifest): 直接镜像活跃 stream 进度; 收到文件且无活跃流 = 完成
+    if (State.files.size > 0 && State.activeStreams === 0) {
+      setProgress(1);
+      $('progDetail').textContent = '';
+    } else {
+      setProgress(Math.min(0.99, State.maxStreamPct));
+      $('progDetail').textContent = '';
+    }
+    return;
+  }
+  const m = State.manifest;
+  const got = Math.min(chunkFilesByIndex().size, m.chunk_count);
+  let frac;
+  if (got >= m.chunk_count) {
+    // 全部块已收齐: 拼接完成显示 100%, 未完成停在 95% (剩余 5% 由 reassemble() 拼接校验阶段驱动)
+    frac = State.reassembled ? 1 : 0.95;
+    $('progDetail').textContent = '';
+  } else {
+    // 在途流进度计入当前块 (report 无法映射到具体块, 取最大百分比作为近似)
+    const inflight = State.activeStreams > 0 ? Math.min(0.99, State.maxStreamPct) : 0;
+    frac = 0.95 * (got + inflight) / m.chunk_count;
+    $('progDetail').textContent = got + '/' + m.chunk_count;
+  }
+  // 单调: 块完成瞬间活跃流从报告里消失会短暂回落, 高水位钳制保证条不倒退
+  State.progressWatermark = Math.max(State.progressWatermark, frac);
+  setProgress(State.progressWatermark);
+}
+
+function updateStatusChip() {
+  const chip = $('statusChip');
+  let text = wasmReady ? t('decoding') : t('wasmLoading');
+  if (!wasmReady) {
+    chip.innerHTML = `<span class="warn">${escapeHtml(text)}</span>`;
+    return;
+  }
+  const parts = [];
+  parts.push(escapeHtml(t('frames', { n: State.framesSeen })));
+  if (State.activeStreams > 0) {
+    parts.push(`<span class="ok">${escapeHtml(t('activeStreams', { n: State.activeStreams, pct: Math.round(State.maxStreamPct * 100) }))}</span>`);
+  } else {
+    parts.push(escapeHtml(t('noActiveStreams')));
+  }
+  if (State.capturing && Date.now() - State.lastActivity < 2000) {
+    parts.push(`<span class="ok">${escapeHtml(t('activityDecoding'))}</span>`);
+  }
+  chip.innerHTML = parts.join(' · ');
+}
+
+function updateVideoPanelClass() {
+  const panel = $('videoPanel');
+  panel.classList.remove('scanning', 'decoding', 'error');
+  if (!State.capturing) return;
+  const since = Date.now() - State.lastActivity;
+  if (since < 2000) panel.classList.add('decoding');
+  else panel.classList.add('scanning');
+}
+
+function updateUiState() {
+  const capturing = State.capturing;
+  $('btnCamera').disabled = !wasmReady || capturing;
+  $('btnScreen').disabled = !wasmReady || capturing;
+  $('btnStop').disabled = !capturing;
+  $('btnClear').disabled = State.files.size === 0;
+  $('btnReassemble').disabled = !canReassemble() || State.reassembled;
+  updateStatusChip();
+  updateVideoPanelClass();
+  updateProgressUI();
+}
+
+// 每秒轮询 wasm report 更新活跃流
+setInterval(() => {
+  if (!wasmReady) return;
+  const report = Sink.getReport();
+  if (Array.isArray(report) && report.length > 0) {
+    State.activeStreams = report.length;
+    State.maxStreamPct = report.reduce((a, b) => Math.max(a, Number(b) || 0), 0);
+  } else {
+    State.activeStreams = 0;
+    State.maxStreamPct = 0;
+  }
+  updateStatusChip();
+  updateVideoPanelClass();
+  updateProgressUI(); // 接收阶段进度条随活跃流实时刷新 (拼接阶段被 _reassembling 跳过)
+}, 1000);
+
+// ============= i18n 应用 =============
+function applyLocale() {
+  document.documentElement.lang = locale;
+  document.title = t('pageTitle');
+  $('pageHeading').textContent = t('pageHeading');
+  $('pageSubtitle').textContent = t('pageSubtitle');
+  $('btnCamera').textContent = t('cameraBtn');
+  $('btnScreen').textContent = t('screenBtn');
+  $('btnStop').textContent = t('stopBtn');
+  $('btnLocale').textContent = t('localeButton');
+  $('btnLocale').title = t('localeTitle');
+  $('btnLocale').setAttribute('aria-label', t('localeTitle'));
+  $('btnReassemble').textContent = t('reassembleButton');
+  $('btnReassemble').title = t('reassembleTitle');
+  $('btnReassemble').setAttribute('aria-label', t('reassembleTitle'));
+  $('btnClear').textContent = t('clearButton');
+  $('btnClear').title = t('clearTitle');
+  $('btnClear').setAttribute('aria-label', t('clearTitle'));
+  if (!wasmReady && !wasmFailed) setVideoHint('wasmLoading');
+  renderFileList();
+  renderInfo();
+  renderLogs();
+  updateUiState();
+}
+
+function setLocale(nextLocale) {
+  if (!SUPPORTED_LOCALES.has(nextLocale) || nextLocale === locale) return;
+  locale = nextLocale;
+  try {
+    localStorage.setItem(LOCALE_KEY, locale);
+  } catch (e) { /* ignore */ }
+  applyLocale();
+}
+
+// ============= 事件绑定 =============
+$('btnCamera').addEventListener('click', () => void startCapture('camera'));
+$('btnScreen').addEventListener('click', () => void startCapture('screen'));
+$('btnStop').addEventListener('click', () => void stopCapture(false));
+$('btnLocale').addEventListener('click', () => {
+  setLocale(locale === 'en' ? 'zh-CN' : 'en');
+});
+$('btnReassemble').addEventListener('click', () => void reassemble());
+$('btnClear').addEventListener('click', () => {
+  State.files = new Map();
+  State.manifest = null;
+  State.manifestName = null;
+  State.reassembled = false;
+  State.progressWatermark = 0;
+  $('info').style.display = 'none';
+  State.logs = [];
+  renderLogs();
+  renderFileList();
+  log('cleared', {}, 'ok');
+});
+
+// ============= 启动 =============
+// worker 来源: 正常 HTTP 部署指向 vendored worker 文件;
+// build-standalone.py 构建 recv.standalone.html 时会替换下一行为内联 blob worker。
+// === build-standalone.py worker marker ===
+const WORKER_URL = 'vendor/cimbar-wasm-v0.6.4/recv-worker.2026-01-20T0312.js';
+
+// 预定义 Module 让 wasm glue 找到
+window.Module = {
+  onRuntimeInitialized: function () {
+    log('wasmReady', {}, 'ok');
+    wasmReady = true;
+    Module._cimbard_configure_decode(MODE_B);
+    Sink.allocate();
+    initWorkers();
+    updateUiState();
+  },
+  print: function (text) { console.log('[wasm] ' + text); },
+  printErr: function (text) { console.warn('[wasm err] ' + text); },
+};
+
+window.addEventListener('error', (e) => {
+  if (!wasmReady && e && e.message && /wasm|Script error|Module/i.test(e.message)) {
+    wasmFailed = true;
+    log('wasmLoadFailed', {}, 'err');
+    setVideoHint('wasmLoadFailed');
+    updateUiState();
+  }
+});
+
+applyLocale();
+log('ready', {}, 'ok');
+</script>
+
+<script src="vendor/cimbar-wasm-v0.6.4/cimbar_js.2026-01-20T0312.js"></script>
+
+</body>
+</html>

@@ -47,3 +47,4 @@ build/
 
 # Internal-only roadmap (kept locally in .todos/, never published)
 ROADMAP.md
+__pycache__/
