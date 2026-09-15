@@ -175,7 +175,8 @@ fountain code 的特性是"持续编码越多冗余越好"。我们的 wrapper �
 ```
 video element (getUserMedia / getDisplayMedia)
   ↓ requestVideoFrameCallback (无/停滞则 rAF + drawImage 回退, 见看门狗)
-VideoFrame.copyTo → NV12/I420/RGBA 字节
+VideoFrame.copyTo → 原生 NV12/I420/RGBA 紧密排列字节
+  (缩放、旋转或其他像素格式走 Canvas → RGBA)
   ↓ postMessage 轮转派发到 N 个 worker (N = min(4, hardwareConcurrency/2))
 worker: _cimbard_scan_extract_decode(img, w, h, format, buf, len)   ← 图像→fountain frame bytes
   ↓ postMessage 回主线程
@@ -198,7 +199,11 @@ _cimbard_decompress_read(id) 循环 → 解压字节 → 内存 Map<name, Uint8A
 
 ### rVFC 看门狗
 
-`requestVideoFrameCallback` 在窗口最小化/完全遮挡/无合成器环境下可能**永不回调**（实测：隐藏窗口下 4s 内 0 回调，rAF 也被浏览器暂停）。页面加 1.5s 看门狗：无回调即永久切到 `rAF + drawImage + getImageData` 回退路径；无 rVFC 的浏览器（Firefox/Safari）直接走回退路径。窗口完全隐藏时两条路径都会被浏览器节流——这是浏览器机制，接收窗口必须保持可见（README 已知限制已注明）。
+`requestVideoFrameCallback` 在窗口最小化/完全遮挡/无合成器环境下可能**永不回调**（实测：隐藏窗口下 4s 内 0 回调，rAF 也被浏览器暂停）。页面加 1.5s 看门狗：等待回调超时就切到 `rAF + drawImage + getImageData`，本次采集继续使用回退路径。浏览器缺少视频帧回调或对应取消 API 时，也使用回退路径。窗口完全隐藏时两条路径都会被浏览器节流，接收窗口必须保持可见。
+
+页面记录每个待执行回调的类型，停止采集或切换到回退路径时调用对应的取消 API。每次采集使用独立的 generation；异步像素复制和 Worker 返回结果都检查它，过期结果会被丢弃。重新启动时会重新选择采集路径。
+
+直接复制使用 `visibleRect` 和显式的平面 offset／stride，并检查复制返回的布局。只有显示尺寸与复制尺寸一致、方向无需变换、格式为 RGBA 或偶数宽高的 NV12／I420 时才走这条路径；其他情况交给 Canvas 渲染后取 RGBA，确保 Worker 收到的格式、尺寸与像素数据一致。
 
 ### standalone 构建 (blob worker)
 

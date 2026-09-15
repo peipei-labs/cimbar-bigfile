@@ -28,7 +28,7 @@
 
 > 也可以用模块化的 `send.html` / `recv.html`（开发版），但需要先起本地 HTTP server（见下文 [开发](#开发) 段），因为浏览器在 `file://` 协议下会拦截 wasm 文件加载。普通用户用 standalone 版更简单。
 
-发送页和拼接页的界面**默认使用英文**。点击页面右上角的 `中文` / `EN` 按钮可以随时切换语言；浏览器会记住选择，刷新或下次打开页面时继续使用所选语言。
+发送页、接收页和拼接页的界面**默认使用英文**。点击页面右上角的 `中文` / `EN` 按钮可以随时切换语言；浏览器会记住选择，刷新或下次打开页面时继续使用所选语言。
 
 ## PC 接收端 (recv.html)
 
@@ -220,6 +220,10 @@ python -m http.server 8000
 ### wasm 编解码管线测试
 
 [`scripts/pipeline-test.html`](scripts/pipeline-test.html) 是开发用测试页：在浏览器里跑通 编码 → canvas 渲染 → 提取 → fountain 解码 → 多 stream 分桶 → 拼接 + SHA256 校验 的完整数据路径（不经过光学链路）。需要本地 HTTP server 后访问 `http://localhost:8000/scripts/pipeline-test.html`，页面日志输出 `PASS` 即通过。它同时向外部暴露 `window.__pipeline` 辅助函数，可被自动化测试驱动。
+
+### 采集回归测试
+
+运行 `node --test scripts/test-recv-capture.js`，检查停止／重启、延迟帧、Worker 返回结果、看门狗切换，以及像素格式和尺寸匹配。测试使用可控的浏览器 API 替身；真实摄像头的对焦、光照和传输效果需要在设备上验证。
 
 ### 构建自包含单文件版
 

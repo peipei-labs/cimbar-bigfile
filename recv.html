@@ -781,9 +781,11 @@ async function reassemble() {
 
 // ============= 采集: 摄像头 / 屏幕 =============
 const _workers = [];
+const _workerFrames = new WeakMap();
 let _nextWorker = 0;
 let _framesInFlight = 0;
-let _rAFCallbackId = null;
+let _frameCallback = null;
+let _captureGeneration = 0;
 let _fallbackCanvas = null;
 let _fallbackCtx = null;
 let _useFallback = false;
@@ -795,12 +797,16 @@ function initWorkers() {
   // 复用 vendored recv-worker (未修改): worker 内 scan+extract, 把 fountain frame bytes 发回主线程
   for (let i = 0; i < WORKER_COUNT; i++) {
     const w = new Worker(WORKER_URL);
-    w.onmessage = (event) => onWorkerMessage(event.data);
+    _workerFrames.set(w, { ready: false, generations: [] });
+    w.onmessage = (event) => onWorkerMessage(w, event.data);
     w.onerror = (error) => {
-      // worker 崩溃后不会再回消息, 移除出轮转并递减在途计数, 避免 _framesInFlight 泄漏导致永久丢帧
-      _framesInFlight = Math.max(0, _framesInFlight - 1);
+      const pending = _workerFrames.get(w);
+      _framesInFlight = Math.max(0, _framesInFlight - pending.generations.length);
+      pending.generations = [];
+      pending.ready = false;
       const idx = _workers.indexOf(w);
       if (idx >= 0) _workers.splice(idx, 1);
+      w.terminate();
       console.error('[recv] worker error:', error);
       log('wasmLoadFailed', {}, 'err');
     };
@@ -808,15 +814,21 @@ function initWorkers() {
   }
 }
 
-function onWorkerMessage(data) {
+function onWorkerMessage(worker, data) {
+  const pending = _workerFrames.get(worker);
   if (data.type === 'startWasm') {
     if (data.ready) {
+      pending.ready = true;
       log('workersReady', { count: _workers.length }, 'ok');
     } else if (data.error) {
       log('wasmLoadFailed', {}, 'err');
     }
     return;
   }
+  if (pending.generations.length === 0) return;
+  const generation = pending.generations.shift();
+  _framesInFlight = Math.max(0, _framesInFlight - 1);
+  if (!isCurrentCapture(generation)) return;
   if (data.res) {
     // 空帧/提取失败: 仅统计
     if (data.nodata) {
@@ -824,108 +836,153 @@ function onWorkerMessage(data) {
     } else if (data.failed_extract) {
       State.extractFails += 1;
     }
-    _framesInFlight -= 1;
     return;
   }
-  _framesInFlight -= 1;
   if (data.buff && data.buff.length > 0) {
     Sink.onDecode(data.buff);
   }
 }
 
-function enqueueFrame(pixels, format, width, height) {
-  if (!wasmReady || _workers.length === 0) return;
-  if (_framesInFlight > FRAMES_IN_FLIGHT_LIMIT) {
+function isCurrentCapture(generation) {
+  return State.capturing && generation === _captureGeneration;
+}
+
+function enqueueFrame(pixels, format, width, height, generation) {
+  if (!isCurrentCapture(generation) || !wasmReady) return;
+  const readyWorkers = _workers.filter(w => _workerFrames.get(w).ready);
+  if (readyWorkers.length === 0) return;
+  if (_framesInFlight >= FRAMES_IN_FLIGHT_LIMIT) {
     State.queueDrops += 1;
     return;
   }
   _framesInFlight += 1;
-  const w = _workers[_nextWorker];
-  _nextWorker = (_nextWorker + 1) % _workers.length;
+  const w = readyWorkers[_nextWorker % readyWorkers.length];
+  _nextWorker = (_nextWorker + 1) % readyWorkers.length;
+  _workerFrames.get(w).generations.push(generation);
   w.postMessage({ type: 'proc', pixels, format, width, height, mode: MODE_B }, [pixels.buffer]);
 }
 
-async function onFrame(now, metadata) {
+// The worker consumes tightly packed NV12, I420 or RGBA pixels at their copied size.
+// Canvas handles scaling, orientation and formats that need color conversion.
+async function copyVideoFrame(vf) {
+  const rect = vf.visibleRect;
+  if (!rect || rect.width !== vf.displayWidth || rect.height !== vf.displayHeight ||
+      vf.rotation || vf.flip) return null;
+  const { width, height } = rect;
+  const format = vf.format;
+  let layout;
+  let size;
+  if (format === 'RGBA') {
+    layout = [{ offset: 0, stride: width * 4 }];
+    size = width * height * 4;
+  } else if ((format === 'NV12' || format === 'I420') && width % 2 === 0 && height % 2 === 0) {
+    const area = width * height;
+    layout = format === 'NV12'
+      ? [{ offset: 0, stride: width }, { offset: area, stride: width }]
+      : [{ offset: 0, stride: width }, { offset: area, stride: width / 2 },
+         { offset: area * 5 / 4, stride: width / 2 }];
+    size = area * 3 / 2;
+  } else {
+    return null;
+  }
+  const options = { rect, layout };
+  if (vf.allocationSize(options) !== size) return null;
+  const pixels = new Uint8Array(size);
+  const copiedLayout = await vf.copyTo(pixels, options);
+  if (copiedLayout.length !== layout.length || copiedLayout.some((plane, i) =>
+      plane.offset !== layout[i].offset || plane.stride !== layout[i].stride)) return null;
+  return { pixels, format, width, height };
+}
+
+async function onFrame(now, generation) {
+  if (!isCurrentCapture(generation) || _useFallback) return;
   State.framesSeen += 1;
   if (_workers.length === 0) return;
 
   const video = $('video');
   if (!video || video.readyState < 2) {
-    scheduleNextFrame();
+    scheduleNextFrame(generation);
     return;
   }
 
   let vf = null;
   try {
-    vf = new VideoFrame(video, { timestamp: now });
-    const width = vf.displayWidth;
-    const height = vf.displayHeight;
-
-    // 与上游 recv.js 相同的格式处理: 支持 NV12/I420, 否则转 RGBA
-    let vfparams = {};
-    const supportedFormats = ['NV12', 'I420'];
-    if (!supportedFormats.includes(vf.format)) {
-      vfparams.format = 'RGBA';
+    vf = new VideoFrame(video, { timestamp: Math.round(now * 1000) });
+    const frame = await copyVideoFrame(vf);
+    if (!isCurrentCapture(generation)) return;
+    if (!frame) {
+      _useFallback = true;
+      fallbackFrameCapture(generation);
+      return;
     }
-    const size = vf.allocationSize(vfparams);
-    const buff = new Uint8Array(size);
-    await vf.copyTo(buff, vfparams);
-
-    let format = vfparams.format || vf.format;
-    if (format === 'RGBA' && size !== width * height * 4) {
-      format = vf.format; // fallback: 按实际格式上报
-    }
-    enqueueFrame(buff, format, width, height);
+    enqueueFrame(frame.pixels, frame.format, frame.width, frame.height, generation);
   } catch (e) {
+    if (!isCurrentCapture(generation)) return;
     console.error('[recv] VideoFrame path failed, falling back:', e);
-    fallbackFrameCapture();
+    _useFallback = true;
+    fallbackFrameCapture(generation);
     return;
   } finally {
     if (vf) vf.close();
   }
-  scheduleNextFrame();
+  scheduleNextFrame(generation);
 }
 
-function scheduleNextFrame() {
+function cancelFrameCallback() {
+  if (_watchdogTimer !== null) {
+    clearTimeout(_watchdogTimer);
+    _watchdogTimer = null;
+  }
+  const callback = _frameCallback;
+  _frameCallback = null;
+  if (!callback) return;
+  if (callback.kind === 'video') callback.video.cancelVideoFrameCallback(callback.id);
+  else cancelAnimationFrame(callback.id);
+}
+
+function scheduleNextFrame(generation = _captureGeneration) {
   const video = $('video');
-  if (!State.capturing || !video) return;
-  if (_useFallback) {
-    _rAFCallbackId = requestAnimationFrame(fallbackFrameCapture);
-    return;
-  }
-  if (video.requestVideoFrameCallback) {
-    _rAFCallbackId = video.requestVideoFrameCallback(onFrame);
-    armWatchdog();
-  } else {
-    _useFallback = true;
-    _rAFCallbackId = requestAnimationFrame(fallbackFrameCapture);
-  }
+  if (!isCurrentCapture(generation) || !video || _frameCallback) return;
+  if (!video.requestVideoFrameCallback || !video.cancelVideoFrameCallback) _useFallback = true;
+  const callback = { kind: _useFallback ? 'animation' : 'video', video, id: null };
+  _frameCallback = callback;
+  const run = (now) => {
+    if (_frameCallback !== callback || !isCurrentCapture(generation)) return;
+    _frameCallback = null;
+    if (_watchdogTimer !== null) clearTimeout(_watchdogTimer);
+    _watchdogTimer = null;
+    if (callback.kind === 'video') void onFrame(now, generation);
+    else fallbackFrameCapture(generation);
+  };
+  if (callback.kind === 'video') {
+    callback.id = video.requestVideoFrameCallback(run);
+    armWatchdog(generation, callback);
+  } else callback.id = requestAnimationFrame(run);
 }
 
 // rVFC 在窗口被遮挡/最小化/节流/无合成器时可能永不回调。
 // 看门狗: 1.5s 无回调 -> 永久切到 rAF + drawImage 路径。
-function armWatchdog() {
-  if (_watchdogTimer) clearTimeout(_watchdogTimer);
+function armWatchdog(generation, callback) {
   _watchdogTimer = setTimeout(() => {
-    if (!State.capturing || _useFallback) return;
+    if (!isCurrentCapture(generation) || _frameCallback !== callback) return;
     console.warn('[recv] requestVideoFrameCallback stalled, switching to rAF fallback');
+    cancelFrameCallback();
     _useFallback = true;
-    if (typeof _rAFCallbackId === 'number') cancelAnimationFrame(_rAFCallbackId);
-    _rAFCallbackId = requestAnimationFrame(fallbackFrameCapture);
+    scheduleNextFrame(generation);
   }, 1500);
 }
 
 // rAF + drawImage 回退路径 (无 rVFC 或 rVFC 停滞时)
-function fallbackFrameCapture() {
-  if (!State.capturing) return;
+function fallbackFrameCapture(generation) {
+  if (!isCurrentCapture(generation)) return;
   const video = $('video');
   if (!video || video.readyState < 2) {
-    scheduleNextFrame();
+    scheduleNextFrame(generation);
     return;
   }
   const w = video.videoWidth, h = video.videoHeight;
   if (!w || !h) {
-    scheduleNextFrame();
+    scheduleNextFrame(generation);
     return;
   }
   if (!_fallbackCanvas) {
@@ -939,15 +996,17 @@ function fallbackFrameCapture() {
   try {
     _fallbackCtx.drawImage(video, 0, 0, w, h);
     const img = _fallbackCtx.getImageData(0, 0, w, h);
-    enqueueFrame(img.data, 'RGBA', w, h);
+    enqueueFrame(img.data, 'RGBA', w, h, generation);
   } catch (e) {
     console.error('[recv] fallback frame capture failed:', e);
   }
-  scheduleNextFrame();
+  scheduleNextFrame(generation);
 }
 
 async function startCapture(kind) {
-  if (State.capturing) await stopCapture(false);
+  if (State.capturing) stopCapture(false);
+  const generation = ++_captureGeneration;
+  _useFallback = false;
 
   let stream;
   try {
@@ -979,11 +1038,16 @@ async function startCapture(kind) {
       log('screenStarted', {}, 'ok');
     }
   } catch (err) {
+    if (generation !== _captureGeneration) return;
     if (err && err.name === 'NotAllowedError') return; // 用户取消选择器
     log(kind === 'camera' ? 'cameraFailed' : 'screenFailed', { error: err && err.message ? err.message : String(err) }, 'err');
     return;
   }
 
+  if (generation !== _captureGeneration) {
+    if (stream) for (const track of stream.getTracks()) track.stop();
+    return;
+  }
   if (!stream || !stream.getVideoTracks().length) {
     log('noStream', {}, 'err');
     return;
@@ -992,7 +1056,7 @@ async function startCapture(kind) {
   State.capture = kind;
   State.capturing = true;
   stream.getVideoTracks()[0].addEventListener('ended', () => {
-    if (State.capture === kind) {
+    if (State.stream === stream && isCurrentCapture(generation)) {
       void stopCapture(true);
     }
   });
@@ -1004,21 +1068,16 @@ async function startCapture(kind) {
   } catch (e) {
     console.error('[recv] video.play() failed:', e);
   }
+  if (!isCurrentCapture(generation)) return;
   setVideoHint(null);
-  scheduleNextFrame();
+  scheduleNextFrame(generation);
   updateUiState();
 }
 
-async function stopCapture(sourceEnded) {
+function stopCapture(sourceEnded) {
   State.capturing = false;
-  if (_watchdogTimer) {
-    clearTimeout(_watchdogTimer);
-    _watchdogTimer = null;
-  }
-  if (_rAFCallbackId) {
-    if (typeof _rAFCallbackId === 'number') cancelAnimationFrame(_rAFCallbackId);
-    _rAFCallbackId = null;
-  }
+  _captureGeneration += 1;
+  cancelFrameCallback();
   if (State.stream) {
     for (const track of State.stream.getTracks()) track.stop();
   }

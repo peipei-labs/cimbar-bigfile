@@ -224,6 +224,10 @@ python -m http.server 8000
 
 [`scripts/pipeline-test.html`](scripts/pipeline-test.html) is a development test page that runs the full data path in a browser: encode → canvas render → extract → fountain decode → multi-stream bucketing → reassemble + SHA256 verification (no optical link involved). Serve it over a local HTTP server and open `http://localhost:8000/scripts/pipeline-test.html`; the page logs `PASS` on success. It also exposes `window.__pipeline` helpers for driving by automated tests.
 
+### Capture regression tests
+
+Run `node --test scripts/test-recv-capture.js` to check stop/restart behavior, delayed frames, worker replies, watchdog transitions, and pixel format/dimension consistency. These tests use controlled browser API substitutes; camera focus, lighting, and optical transfer performance still need device testing.
+
 ### Building the self-contained single-file builds
 
 `send.standalone.html` and `recv.standalone.html` are the "double-click and go" builds for end users — vendor wasm + glue js are base64-inlined into the HTML so the pages no longer need an HTTP server. Rebuild every time the vendor is upgraded:
