@@ -229,6 +229,8 @@ python -m http.server 8000
 
 运行 `node --test scripts/test-recv-capture.js`，检查停止／重启、延迟帧、Worker 返回结果、看门狗切换，以及像素格式和尺寸匹配。测试使用可控的浏览器 API 替身；真实摄像头的对焦、光照和传输效果需要在设备上验证。
 
+剪贴板回归测试：本机已有 Playwright 和 Chromium 时，运行 `node scripts/test-send-clipboard.js`；Playwright 安装在其他目录时，可用 `PLAYWRIGHT_MODULE=/path/to/playwright` 指定现有模块。脚本同时验证 HTTP 下的 `send.html` 和离线 `file://` 下的 standalone，覆盖图文提取、列表编号、重名引用和异步清空等场景，截图写入系统临时目录。
+
 ### 构建自包含单文件版
 
 `send.standalone.html` 和 `recv.standalone.html` 是给最终用户的"双击即用"版本，把 vendor wasm + glue js 都 base64 inline 进 HTML，脱离 HTTP server。每次升级 vendor 后必须重新构建：

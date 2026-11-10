@@ -926,13 +926,31 @@ function clipboardBasename(src) {
   return src.replace(/\\/g, '/').split(/[?#]/)[0].split('/').pop();
 }
 
+function clipboardListLabel(value, type) {
+  let label = String(value);
+  if ((type === 'a' || type === 'A') && value > 0) {
+    label = '';
+    for (let n = value; n > 0; n = Math.floor((n - 1) / 26)) {
+      label = String.fromCharCode(97 + (n - 1) % 26) + label;
+    }
+  } else if ((type === 'i' || type === 'I') && value > 0 && value < 4000) {
+    label = '';
+    for (const [amount, symbol] of [[1000,'m'],[900,'cm'],[500,'d'],[400,'cd'],[100,'c'],[90,'xc'],[50,'l'],[40,'xl'],[10,'x'],[9,'ix'],[5,'v'],[4,'iv'],[1,'i']]) {
+      while (value >= amount) { label += symbol; value -= amount; }
+    }
+  }
+  return type === 'A' || type === 'I' ? label.toUpperCase() : label;
+}
+
 function clipboardHtmlText(root, imageText = () => '') {
   let text = '';
+  let listPrefixEnd = -1;
+  const listCounters = new Map();
   const newline = () => {
     text = text.replace(/ +$/, '');
     if (text && !text.endsWith('\n')) text += '\n';
   };
-  const walk = (node, pre = false) => {
+  const walk = (node, pre = false, listDepth = 0) => {
     if (node.nodeType === Node.TEXT_NODE) {
       let value = pre ? node.data : node.data.replace(/\s+/g, ' ');
       if (!pre && (!text || /[\s]$/.test(text))) value = value.replace(/^ /, '');
@@ -948,8 +966,27 @@ function clipboardHtmlText(root, imageText = () => '') {
     }
     if (tag === 'BR') { text += '\n'; return; }
     const block = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DIV|DL|DT|DD|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TR|UL)$/.test(tag);
-    if (block) newline();
-    for (const child of node.childNodes) walk(child, pre || tag === 'PRE');
+    if (block && !(text.length === listPrefixEnd && /^(P|DIV)$/.test(tag))) newline();
+    if (tag === 'LI') {
+      const list = node.parentElement;
+      let marker = '•';
+      if (list?.tagName === 'OL') {
+        let value = listCounters.get(list);
+        if (value === undefined) {
+          const start = Number.parseInt(list.getAttribute('start'), 10);
+          const count = Array.from(list.children).filter(child => child.tagName === 'LI').length;
+          value = Number.isFinite(start) ? start : (list.reversed ? count : 1);
+        }
+        const explicit = Number.parseInt(node.getAttribute('value'), 10);
+        if (Number.isFinite(explicit)) value = explicit;
+        marker = clipboardListLabel(value, node.getAttribute('type') || list.getAttribute('type') || '1') + '.';
+        listCounters.set(list, value + (list.reversed ? -1 : 1));
+      }
+      text += '  '.repeat(Math.max(0, listDepth - 1)) + marker + ' ';
+      listPrefixEnd = text.length;
+    }
+    const childDepth = listDepth + (/^(OL|UL)$/.test(tag) ? 1 : 0);
+    for (const child of node.childNodes) walk(child, pre || tag === 'PRE', childDepth);
     if ((tag === 'TD' || tag === 'TH') && node.nextElementSibling) text += '\t';
     if (block) newline();
   };
