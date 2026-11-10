@@ -101,6 +101,18 @@ const runCases = async (page) => {
       await paste({files:[image()],text:'list',html:'<ol type="a" start="'+huge+'"><li value="'+huge+'">First<img src="cid:0"></li><li>Second</li></ol>'});
       assert(await txtItems()[0].file.text()==='a. Firstpicture.png\nb. Second','invalid counters did not fall back');
     });
+    await test('inline CSS list styles override HTML label types', async () => {
+      for (const [style,first,second] of [['lower-alpha','a','b'],['upper-alpha','A','B'],['lower-latin','a','b'],['upper-latin','A','B'],['lower-roman','i','ii'],['upper-roman','I','II'],['decimal','1','2']]) {
+        reset();await paste({files:[image()],text:'list',html:'<ol type="A" style="list-style-type:'+style+'"><li>First<img src="cid:0"></li><li>Second</li></ol>'});
+        assert(await txtItems()[0].file.text()===first+'. Firstpicture.png\n'+second+'. Second','CSS list style lost: '+style);
+      }
+    });
+    await test('headings and other first text blocks stay beside list labels', async () => {
+      for (const tag of ['h2','blockquote','section','pre']) {
+        reset();await paste({files:[image()],text:'1. Title\n2. Next',html:'<ol><li><'+tag+'>Title<img src="cid:0"></'+tag+'></li><li>Next</li></ol>'});
+        assert(await txtItems()[0].file.text()==='1. Titlepicture.png\n2. Next','first block separated: '+tag);
+      }
+    });
     let mixedExample;
     await test('existing multiple files + text paste from Add files focus', async () => {
       reset(); await stageFiles([file('one.bin'), file('two.bin')]);
