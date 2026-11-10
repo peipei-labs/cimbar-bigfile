@@ -2435,7 +2435,8 @@ window.addEventListener('paste', async (e) => {
   const text = data.getData('text/plain');
   const html = data.getData('text/html');
   if (data.files.length === 0 && !text && !html) return;
-  if (target?.closest?.('input[type="number"]') && data.files.length === 0 && !html && text.trim() && Number.isFinite(Number(text))) return;
+  const hasImageMarkup = /<(?:img|(?:v:)?imagedata)\b/i.test(html);
+  if (target?.closest?.('input[type="number"]') && data.files.length === 0 && !hasImageMarkup && text.trim() && Number.isFinite(Number(text))) return;
 
   e.preventDefault();
   await stageClipboard(data);
