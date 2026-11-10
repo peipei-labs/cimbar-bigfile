@@ -66,6 +66,10 @@ You can also collect ad-hoc content on the sender page before sending:
 
 - `Ctrl+V` pasted text becomes a staged `clipboard-*.txt` file
 - `Ctrl+V` pasted files, or "Add files" / "Add folder", appends items to the staged list
+- Repeated additions preserve existing content, including a previously prepared single file; cancelling the picker leaves the selection unchanged
+- Mixed text and images produce separate image files and one TXT for the full text. HTML image positions become the corresponding filenames; without position information, image filenames are listed at the end
+- Images are extracted only from clipboard files or embedded HTML data. Unavailable or unmatched images are marked "Image not extracted" with a visible notice; use "Add files" to include them. Network images are not downloaded
+- `Ctrl+V` still appends after multiple files are staged, including while a file picker, dropdown, or FPS control has focus. Pasting a plain number into a numeric field still edits that parameter
 - With one ordinary file or one pasted text item staged, the button reads "Start transmission" and sends the original file directly
 - With multiple files, or content selected through "Add folder" (even if the folder contains only one file), "Pack and start" creates a local `cimbar-bundle-*.tar` archive and sends it through the normal flow
 
