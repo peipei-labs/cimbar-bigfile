@@ -980,8 +980,9 @@ function clipboardHtmlText(root, imageText = () => '') {
         }
         const explicit = Number.parseInt(node.getAttribute('value'), 10);
         if (Number.isFinite(explicit)) value = explicit;
-        const cssType = listTypes[node.style.listStyleType || list.style.listStyleType];
-        marker = clipboardListLabel(value, cssType || node.getAttribute('type') || list.getAttribute('type') || '1') + '.';
+        const itemType = node.getAttribute('type');
+        const cssType = listTypes[node.style.listStyleType] || (/^[1aAiI]$/.test(itemType || '') ? itemType : '') || listTypes[list.style.listStyleType];
+        marker = clipboardListLabel(value, cssType || list.getAttribute('type') || '1') + '.';
         listCounters.set(list, value + (list.reversed ? -1 : 1));
       }
       text += '  '.repeat(Math.max(0, listDepth - 1)) + marker + ' ';

@@ -113,6 +113,10 @@ const runCases = async (page) => {
         assert(await txtItems()[0].file.text()==='1. Titlepicture.png\n2. Next','first block separated: '+tag);
       }
     });
+    await test('item types override parent CSS while item CSS keeps priority', async () => {
+      reset();await paste({files:[image()],text:'list',html:'<ol type="a" style="list-style-type:lower-alpha"><li type="I">First<img src="cid:0"></li><li type="A" style="list-style-type:lower-roman">Second</li><li>Third</li></ol>'});
+      assert(await txtItems()[0].file.text()==='I. Firstpicture.png\nii. Second\nc. Third','list item style priority changed');
+    });
     let mixedExample;
     await test('existing multiple files + text paste from Add files focus', async () => {
       reset(); await stageFiles([file('one.bin'), file('two.bin')]);
