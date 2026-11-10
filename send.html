@@ -406,7 +406,7 @@
   <div id="dropzone">
     <div class="icon">📁</div>
     <div class="hint" data-i18n="dropHint">Drop one file / click to choose / Ctrl+V to stage</div>
-    <div class="sub" data-i18n="dropSub">Pasted text is saved as .txt; stage multiple files or folders to send them as one archive</div>
+    <div class="sub" data-i18n="dropSub">Paste text and images together: one .txt with image filenames, plus separate image files</div>
     <div class="actions">
       <button id="btnAddFiles" type="button" data-i18n="addFiles">Add files</button>
       <button id="btnAddFolder" type="button" data-i18n="addFolder">Add folder</button>
@@ -415,6 +415,7 @@
     </div>
     <div id="bundlePanel">
       <div id="bundleSummary">0 staged items</div>
+      <div id="clipboardNotice" role="status" style="color:#f0b86e;font-size:12px;" hidden></div>
       <div id="bundleList"></div>
     </div>
     <div id="preparedPanel">
@@ -429,10 +430,10 @@
         <button id="btnStartPrepared" type="button" data-i18n="start" disabled>Start transmission</button>
       </div>
     </div>
-    <input type="file" id="fileInput" style="display:none;">
-    <input type="file" id="bundleFileInput" multiple style="display:none;">
-    <input type="file" id="bundleDirInput" webkitdirectory multiple style="display:none;">
   </div>
+  <input type="file" id="fileInput" style="display:none;">
+  <input type="file" id="bundleFileInput" multiple style="display:none;">
+  <input type="file" id="bundleDirInput" webkitdirectory multiple style="display:none;">
 
   <div id="left-panel" class="side-panel">
     <div class="file-meta">
@@ -518,7 +519,10 @@ const I18N = {
     switchLanguage: 'Switch to Chinese',
     targetLanguage: '中文',
     dropHint: 'Drop one file / click to choose / Ctrl+V to stage',
-    dropSub: 'Pasted text is saved as .txt; stage multiple files or folders to send them as one archive',
+    dropSub: 'Paste text and images together: one .txt with image filenames, plus separate image files',
+    clipboardImageMissing: '[Image not extracted: {name}]',
+    clipboardImage: 'image',
+    clipboardMissingNotice: '{count} image(s) could not be extracted from the clipboard. Their positions are marked in the text; use Add files to include the images. No network images were downloaded.',
     addFiles: 'Add files',
     addFolder: 'Add folder',
     sendBundle: 'Pack and start',
@@ -633,7 +637,10 @@ const I18N = {
     switchLanguage: 'Switch to English',
     targetLanguage: 'EN',
     dropHint: '拖入单文件 / 点击选择 / Ctrl+V 暂存',
-    dropSub: '粘贴的文本会自动保存为 .txt；多个文件或文件夹可暂存后打包发送',
+    dropSub: '图文一起粘贴：文字保存为一个 .txt，图片位置替换为文件名，图片单独保存',
+    clipboardImageMissing: '[图片未提取：{name}]',
+    clipboardImage: '图片',
+    clipboardMissingNotice: '有 {count} 张图片未能从剪贴板提取，已在文字中标注；可用“添加文件”补充图片。页面不会下载网络图片。',
     addFiles: '添加文件',
     addFolder: '添加文件夹',
     sendBundle: '打包并开始传输',
@@ -843,8 +850,10 @@ const State = {
   // 解锁/切别块/start/stop/新文件 都清零.
   lockedRefillCount: 0,
   bundleItems: [],     // Array<{ path: string, file: File }>
+  clipboardMissingImages: 0,
 };
 let _payloadRevision = 0;
+let _selectionResetRevision = 0;
 let _confirmGuarded = false;
 let _confirmGuardTimer = null;
 
@@ -896,13 +905,147 @@ function addBundleFile(file, path) {
   const safePath = uniqueArchivePath(sanitizeArchivePath(path || file.webkitRelativePath || file.name));
   State.bundleItems.push({ path: safePath, file });
   logI18n('logStaged', { path: safePath, size: fmtBytes(file.size) }, 'ok');
+  return safePath;
 }
 
 function addBundleText(text) {
-  invalidatePreparedTransfer();
   const name = `clipboard-${timestampSlug()}.txt`;
   const file = new File([text], name, { type: 'text/plain;charset=utf-8', lastModified: Date.now() });
   addBundleFile(file, name);
+}
+
+function beginBundleAddition() {
+  const previousFile = State.bundleItems.length === 0 ? State.file : null;
+  invalidatePreparedTransfer();
+  if (previousFile) addBundleFile(previousFile);
+}
+
+function clipboardBasename(src) {
+  try { src = decodeURIComponent(src); } catch {}
+  if (/^cid:/i.test(src)) src = src.slice(4).split('@')[0];
+  return src.replace(/\\/g, '/').split(/[?#]/)[0].split('/').pop();
+}
+
+function clipboardHtmlText(root, imageText = () => '') {
+  let text = '';
+  const newline = () => {
+    text = text.replace(/ +$/, '');
+    if (text && !text.endsWith('\n')) text += '\n';
+  };
+  const walk = (node, pre = false) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      let value = pre ? node.data : node.data.replace(/\s+/g, ' ');
+      if (!pre && (!text || /[\s]$/.test(text))) value = value.replace(/^ /, '');
+      text += value;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
+    const tag = node.nodeName.toUpperCase();
+    if (/^(HEAD|SCRIPT|STYLE|TITLE|NOSCRIPT|TEMPLATE)$/.test(tag)) return;
+    if (tag === 'IMG' || tag === 'V:IMAGEDATA' || tag === 'IMAGEDATA') {
+      text += imageText(node);
+      return;
+    }
+    if (tag === 'BR') { text += '\n'; return; }
+    const block = /^(ADDRESS|ARTICLE|ASIDE|BLOCKQUOTE|DIV|DL|DT|DD|FIGCAPTION|FIGURE|FOOTER|H[1-6]|HEADER|HR|LI|MAIN|NAV|OL|P|PRE|SECTION|TABLE|TR|UL)$/.test(tag);
+    if (block) newline();
+    for (const child of node.childNodes) walk(child, pre || tag === 'PRE');
+    if ((tag === 'TD' || tag === 'TH') && node.nextElementSibling) text += '\t';
+    if (block) newline();
+  };
+  walk(root);
+  return text.replace(/^\n+|\s+$/g, '');
+}
+
+async function collectClipboardContent(data) {
+  // Snapshot every clipboard representation before the first await: browsers restrict later access.
+  const text = data.getData('text/plain');
+  const html = data.getData('text/html');
+  const records = Array.from(data.files || [], file => ({ file, path: null }));
+  const imageFiles = records.filter(item => item.file.type.startsWith('image/'));
+  let fileIndex = 0;
+  const cidRecords = Array.from(data.items || [], item => item.kind === 'file' ? records[fileIndex++] : null);
+  const template = document.createElement('template');
+  template.innerHTML = html;
+  const images = Array.from(template.content.querySelectorAll('img, imagedata, v\\:imagedata'));
+  const bySource = new Map();
+  const imageRecords = new Map();
+  const embedded = [...new Set(images.map(image => image.getAttribute('src') || ''))]
+    .filter(src => /^data:image\//i.test(src));
+  const fingerprints = embedded.length > 0 ? await Promise.all(imageFiles.map(async record => {
+    try { return await sha256Hex(new Uint8Array(await record.file.arrayBuffer())); }
+    catch { return null; }
+  })) : [];
+
+  for (const src of embedded) {
+    try {
+      const blob = await (await fetch(src)).blob();
+      if (!blob.type.startsWith('image/')) continue;
+      const fingerprint = await sha256Hex(new Uint8Array(await blob.arrayBuffer()));
+      let record = imageFiles[fingerprints.indexOf(fingerprint)];
+      if (!record) {
+        const subtype = blob.type.slice(6).split(/[;+]/)[0];
+        const ext = ({ jpeg: 'jpg', 'x-icon': 'ico' })[subtype] || subtype.replace(/[^a-z0-9]/gi, '') || 'img';
+        const name = `clipboard-image-${timestampSlug()}-${records.length + 1}.${ext}`;
+        record = { file: new File([blob], name, { type: blob.type }), path: null };
+        records.push(record);
+      }
+      bySource.set(src, record);
+    } catch {
+      // A malformed embedded image is reported alongside inaccessible image references below.
+    }
+  }
+
+  for (const image of images) {
+    const src = image.getAttribute('src') || '';
+    let record = bySource.get(src);
+    if (!record && /^cid:\d+$/i.test(src)) record = cidRecords[Number(src.slice(4))];
+    if (!record && !/^data:/i.test(src)) {
+      const matches = imageFiles.filter(item => item.file.name === clipboardBasename(src));
+      if (matches.length === 1) record = matches[0];
+      else if (images.length === 1 && imageFiles.length === 1) record = imageFiles[0];
+    }
+    if (record && record.file.type.startsWith('image/')) {
+      imageRecords.set(image, record);
+      if (src) bySource.set(src, record);
+    }
+  }
+  return { text, template, records, images, imageRecords };
+}
+
+async function stageClipboard(data) {
+  const resetRevision = _selectionResetRevision;
+  const content = await collectClipboardContent(data);
+  if (resetRevision !== _selectionResetRevision || State.active || _packingBundle) return;
+  const { records, images, imageRecords, template } = content;
+  const htmlText = clipboardHtmlText(template.content);
+  const missing = images.filter(image => !imageRecords.has(image));
+  const hasImages = images.length > 0 || records.some(record => record.file.type.startsWith('image/'));
+  const hasText = (records.length === 0 || hasImages) && (Boolean(content.text) || /\S/.test(htmlText) || missing.length > 0);
+  if (records.length === 0 && !hasText) return;
+
+  beginBundleAddition();
+  for (const record of records) record.path = addBundleFile(record.file);
+  if (hasText) {
+    const referenced = new Set();
+    const useHtml = images.length > 0 && (/\S/.test(htmlText) || !content.text);
+    let text = useHtml ? clipboardHtmlText(template.content, image => {
+      const record = imageRecords.get(image);
+      if (record) {
+        referenced.add(record);
+        return record.path;
+      }
+      const src = image.getAttribute('src') || '';
+      const name = image.getAttribute('alt') || (/^data:/i.test(src) ? '' : clipboardBasename(src)) || t('clipboardImage');
+      return t('clipboardImageMissing', { name });
+    }) : content.text || htmlText;
+    const remaining = records.filter(record => record.file.type.startsWith('image/') && !referenced.has(record));
+    if (remaining.length > 0) text += `${text ? '\n\n' : ''}${remaining.map(record => record.path).join('\n')}`;
+    if (!useHtml && missing.length > 0) text += `\n\n${missing.map(() => t('clipboardImageMissing', { name: t('clipboardImage') })).join('\n')}`;
+    addBundleText(text);
+  }
+  State.clipboardMissingImages += missing.length;
+  renderBundleList();
 }
 
 function renderBundleList() {
@@ -929,6 +1072,8 @@ function renderBundleList() {
 
 function updateBundleSummary() {
   const count = State.bundleItems.length;
+  $('clipboardNotice').hidden = State.clipboardMissingImages === 0;
+  $('clipboardNotice').textContent = t('clipboardMissingNotice', { count: State.clipboardMissingImages });
   $('bundleSummary').textContent = count === 0
     ? t('stagedEmpty')
     : t('stagedCount', {
@@ -1013,7 +1158,7 @@ async function stageFiles(files) {
     return;
   }
   if (State.active || files.length === 0) return;
-  invalidatePreparedTransfer();
+  beginBundleAddition();
   for (const file of files) {
     addBundleFile(file, file.webkitRelativePath || file.name);
   }
@@ -1478,6 +1623,7 @@ async function prepareFile(file, { preserveBundleItems = false } = {}) {
     return;
   }
   _preparing = true;
+  if (!preserveBundleItems) _selectionResetRevision += 1;
   let prepareRevision = -1;
   try {
     // 失败兜底 + race 防御: 任何后续 await 抛出, 或 await 期间 window-drop handler 先调
@@ -1546,6 +1692,7 @@ async function prepareFile(file, { preserveBundleItems = false } = {}) {
     // 准备失败或期间暂存集合被用户修改时，原暂存内容仍可恢复使用。
     if (!preserveBundleItems && State.bundleItems.length > 0) {
       State.bundleItems = [];
+      State.clipboardMissingImages = 0;
       renderBundleList();
     }
 
@@ -2228,7 +2375,9 @@ $('btnSendBundle').addEventListener('click', async (e) => {
 $('btnClearBundle').addEventListener('click', (e) => {
   e.stopPropagation();
   if (_packingBundle) return;
+  _selectionResetRevision += 1;
   State.bundleItems = [];
+  State.clipboardMissingImages = 0;
   invalidatePreparedTransfer();
   renderBundleList();
   logI18n('logBundleCleared', {}, 'ok');
@@ -2279,21 +2428,18 @@ window.addEventListener('drop', async (e) => {
 window.addEventListener('paste', async (e) => {
   if (State.active || _packingBundle) return;
   const target = e.target;
-  if (target && target.closest && target.closest('input, textarea, select, [contenteditable="true"]')) return;
+  if (target && (target.isContentEditable || target.closest?.('textarea, input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], input[type="tel"], input[type="password"]'))) return;
   const data = e.clipboardData;
   if (!data) return;
 
-  const files = Array.from(data.files || []);
   const text = data.getData('text/plain');
-  if (files.length === 0 && !text) return;
+  const html = data.getData('text/html');
+  if (data.files.length === 0 && !text && !html) return;
+  const hasImageMarkup = /<(?:img|(?:v:)?imagedata)\b/i.test(html);
+  if (target?.closest?.('input[type="number"]') && data.files.length === 0 && !hasImageMarkup && text.trim() && Number.isFinite(Number(text))) return;
 
   e.preventDefault();
-  if (files.length > 0) {
-    await stageFiles(files);
-  } else {
-    addBundleText(text);
-    renderBundleList();
-  }
+  await stageClipboard(data);
 });
 
 applyLocale(currentLocale, false);
