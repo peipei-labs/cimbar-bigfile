@@ -29,7 +29,7 @@ The receiver uses sz3's **CameraFileCopy (CFC)** Android app to scan; CFC's buil
 > You can also use the modular `send.html` / `recv.html` (development builds), but they require a local HTTP server (see [Development](#development) below) — browsers block wasm loads under the `file://` scheme. The standalone builds are simpler for end users.
 
 
-The sender, receiver, and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; the browser remembers your choice across refreshes and future visits.
+The sender, receiver, and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; when browser storage is available, your choice is remembered across refreshes and future visits. The sender page also provides a `White bg` / `Dark bg` (`白色背景` / `深色背景` in Chinese) toggle in the top bar: enabling white background switches both the normal layout and full-screen code view to a light background with a white quiet zone around the code for easier Android CFC scanning across wider angles and distances, and remembers the setting for future visits when browser storage is available.
 
 ## PC Receiver (recv.html)
 
@@ -145,7 +145,7 @@ The reassembly page also defaults to English and provides the same `中文` / `E
 
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| CFC scans nothing | Screen too dim / wrong distance | Max screen brightness, hold the phone 10-30 cm away |
+| CFC scans nothing | Screen too dim / wrong distance / low finder contrast on dark background | Max screen brightness, switch the sender page to `White bg`, hold the phone 10-30 cm away |
 | CFC scans very slowly | Frame rate too high for the camera | Lower send.html FPS to 10-12 |
 | Some chunks never arrive | Insufficient fountain redundancy | Raise the "redundancy" slider in send.html to 2.0 or higher so the sender emits more frames per chunk |
 | Reassembly SHA256 fails | A chunk was corrupted in transit | Identify the failing chunk → resend it (restart send.html with the same `encode_id_base` and jump to that chunk) |
