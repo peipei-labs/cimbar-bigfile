@@ -40,7 +40,7 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
     assert.equal(initial.currentBackground, 'dark', `${label}: initial state should be dark`);
     assert.equal(initial.buttonText, 'White bg', `${label}: button should offer White bg`);
     assert.ok(initial.buttonTitle.includes('white background'), `${label}: title should describe switching to white`);
-    assert.equal(initial.buttonAria, initial.buttonTitle, `${label}: aria-label should match title`);
+    assert.equal(initial.buttonAria, null, `${label}: visible text should serve as accessible name`);
     assert.equal(initial.stored, null, `${label}: startup must not write storage before user toggles`);
 
     // 2. Toggle to white background & verify styles + storage
@@ -53,6 +53,7 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
       headerBg: getComputedStyle($('header')).backgroundColor,
       headerHeight: Math.round($('header').getBoundingClientRect().height),
       dropzoneBg: getComputedStyle($('dropzone')).backgroundColor,
+      disabledFsMatch: getComputedStyle($('btnFullscreen')).backgroundColor === getComputedStyle($('btnStart')).backgroundColor,
       buttonText: $('btnBackground').textContent,
       buttonTitle: $('btnBackground').title,
       stored: localStorage.getItem(BACKGROUND_STORAGE_KEY),
@@ -61,6 +62,7 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
     assert.equal(toggledWhite.currentBackground, 'white');
     assert.equal(toggledWhite.bodyBg, 'rgb(255, 255, 255)', `${label}: body background must be pure white`);
     assert.ok(toggledWhite.headerHeight <= 56, `${label}: header must stay single-row at 1440px width (got ${toggledWhite.headerHeight}px)`);
+    assert.ok(toggledWhite.disabledFsMatch, `${label}: disabled utility button must match disabled styling`);
     assert.equal(toggledWhite.buttonText, 'Dark bg', `${label}: button should offer Dark bg`);
     assert.equal(toggledWhite.buttonTitle, 'Switch to dark background');
     assert.equal(toggledWhite.stored, 'white', `${label}: white setting must persist in localStorage`);
@@ -106,7 +108,7 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
     }));
     assert.equal(zhWhite.text, '深色背景');
     assert.equal(zhWhite.title, '切换为深色背景');
-    assert.equal(zhWhite.aria, '切换为深色背景');
+    assert.equal(zhWhite.aria, null);
 
     await page.click('#btnBackground');
     const zhDark = await page.evaluate(() => ({
@@ -135,7 +137,6 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
 
     // Switch back to English + white background for active transfer / layout / fullscreen checks
     await page.click('#btnLanguage');
-    await page.click('#btnBackground');
 
     // 5. Paste while #btnBackground is focused still stages clipboard content
     const pasteHandled = await page.evaluate(async () => {
@@ -163,9 +164,12 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
       // Exercise completed + locked + active states on jump buttons + open debug log
       State.completedChunks.add(0);
       lockChunk(1);
-      $('log').classList.add('active');
+      $('btnDebug').click();
     });
-    await page.waitForFunction(() => State.active && State.totalFramesSent >= 2);
+    await page.waitForFunction(() => State.active && !document.body.classList.contains('white-bg') && State.totalFramesSent >= 2);
+    const beforeWhite = await page.evaluate(() => State.totalFramesSent);
+    await page.click('#btnBackground');
+    await page.waitForFunction((prev) => State.active && document.body.classList.contains('white-bg') && State.totalFramesSent > prev, beforeWhite);
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
 
     const activeLayout = await page.evaluate(() => {
@@ -189,6 +193,7 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
         leftWidth: Math.round(left.getBoundingClientRect().width),
         rightWidth: Math.round(right.getBoundingClientRect().width),
         fitsMainHeight: Math.round(centerRect.height) <= Math.round(mainRect.height),
+        confirmBtnBg: getComputedStyle($('btnConfirmChunk')).backgroundColor,
         completedBtnBg: getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="0"]')).backgroundColor,
         activeLockedBtnBg: getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="1"]')).backgroundColor,
         idleBtnBg: getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="2"]')).backgroundColor,
@@ -201,32 +206,36 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
     assert.ok(activeLayout.quietLeft >= 12 && activeLayout.quietRight >= 12, `${label}: horizontal white quiet zone >= 12px`);
     assert.ok(activeLayout.leftWidth >= 120 && activeLayout.rightWidth >= 120, `${label}: side panels keep min width`);
     assert.ok(activeLayout.fitsMainHeight, `${label}: #center must not overflow #main`);
+    assert.equal(activeLayout.confirmBtnBg, 'rgb(21, 128, 61)', `${label}: confirm button must use #15803d`);
     assert.notEqual(activeLayout.completedBtnBg, activeLayout.idleBtnBg, `${label}: completed chunk button must stay visually distinct`);
     assert.notEqual(activeLayout.activeLockedBtnBg, activeLayout.idleBtnBg, `${label}: active+locked chunk button must stay visually distinct`);
 
+    await page.hover('#chunkJumpBar button[data-idx="1"]');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="1"]')).backgroundColor === 'rgb(29, 78, 216)');
+    assert.deepEqual(await page.evaluate(() => {
+      const s = getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="1"]'));
+      return { color: s.color, borderLeft: s.borderLeftColor };
+    }), { color: 'rgb(255, 255, 255)', borderLeft: 'rgb(245, 158, 11)' });
+    await page.mouse.move(0, 0);
+    await page.evaluate(() => { State.completedChunks.add(1); renderChunkButtonStates(); lockChunk(2); setJumpTarget(1); });
+    await page.hover('#chunkJumpBar button[data-idx="1"]');
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('#chunkJumpBar button[data-idx="1"]')).backgroundColor === 'rgb(29, 78, 216)');
+
     await page.screenshot({ path: path.join(evidenceDir, `${label}-active-white.png`), fullPage: true });
 
+    await page.setViewportSize({ width: 820, height: 900 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    assert.ok(await page.evaluate(() => $('header').getBoundingClientRect().height > 56 && $('log').getBoundingClientRect().top >= $('header').getBoundingClientRect().bottom));
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+
     // Live toggle to dark and back to white during active transmission must not stop frames
-    const liveToggle = await page.evaluate(async () => {
-      const before = State.totalFramesSent;
-      $('btnBackground').click(); // -> dark
-      await new Promise((r) => setTimeout(r, 90));
-      const darkHasClass = document.body.classList.contains('white-bg');
-      $('btnBackground').click(); // -> white
-      await new Promise((r) => setTimeout(r, 90));
-      return {
-        active: State.active,
-        darkHasClass,
-        whiteHasClass: document.body.classList.contains('white-bg'),
-        framesAdvanced: State.totalFramesSent > before,
-      };
-    });
-    assert.deepEqual(liveToggle, {
-      active: true,
-      darkHasClass: false,
-      whiteHasClass: true,
-      framesAdvanced: true,
-    }, `${label}: live background toggle must keep transmission running`);
+    const beforeDark = await page.evaluate(() => State.totalFramesSent);
+    await page.click('#btnBackground');
+    await page.waitForFunction((prev) => State.active && !document.body.classList.contains('white-bg') && State.totalFramesSent > prev, beforeDark);
+    const beforeWhite2 = await page.evaluate(() => State.totalFramesSent);
+    await page.click('#btnBackground');
+    await page.waitForFunction((prev) => State.active && document.body.classList.contains('white-bg') && State.totalFramesSent > prev, beforeWhite2);
 
     // 7. Fullscreen white background & exit padding cleanup
     const fullscreenCheck = await page.evaluate(async () => {
@@ -249,8 +258,9 @@ async function runTargetSuite(browser, target, label, evidenceDir, offline) {
         const padLeft = parseFloat(getComputedStyle(center).paddingLeft);
         const padBottom = parseFloat(getComputedStyle(center).paddingBottom);
         const inlinePadBottomDuringFs = center.style.paddingBottom;
-        const cw = parseFloat(canvas.style.width);
-        const ch = parseFloat(canvas.style.height);
+        const rect = canvas.getBoundingClientRect();
+        const cw = Math.round(rect.width);
+        const ch = Math.round(rect.height);
 
         // Simulate resize firing BEFORE fullscreenchange when exiting fullscreen
         fsTarget = null;

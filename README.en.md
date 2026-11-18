@@ -29,7 +29,7 @@ The receiver uses sz3's **CameraFileCopy (CFC)** Android app to scan; CFC's buil
 > You can also use the modular `send.html` / `recv.html` (development builds), but they require a local HTTP server (see [Development](#development) below) — browsers block wasm loads under the `file://` scheme. The standalone builds are simpler for end users.
 
 
-The sender, receiver, and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; the browser remembers your choice across refreshes and future visits. The sender page also provides a `White bg` / `Dark bg` (`白色背景` / `深色背景` in Chinese) toggle in the top bar: enabling white background switches both the normal layout and full-screen code view to a light background with a white quiet zone around the code for easier Android CFC scanning across wider angles and distances, and remembers the setting for future visits.
+The sender, receiver, and reassembly pages **default to English**. Use the `中文` / `EN` button in the top-right corner to switch languages at any time; when browser storage is available, your choice is remembered across refreshes and future visits. The sender page also provides a `White bg` / `Dark bg` (`白色背景` / `深色背景` in Chinese) toggle in the top bar: enabling white background switches both the normal layout and full-screen code view to a light background with a white quiet zone around the code for easier Android CFC scanning across wider angles and distances, and remembers the setting for future visits when browser storage is available.
 
 ## PC Receiver (recv.html)
 

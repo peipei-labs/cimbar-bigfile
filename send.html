@@ -393,7 +393,7 @@
       border-color: #cbd5e1;
     }
     body.white-bg #ctrl button:disabled { background: #cbd5e1; color: #64748b; opacity: 0.75; }
-    body.white-bg #ctrl button.utility { background: #fff; color: #1e293b; border-color: #cbd5e1; }
+    body.white-bg #ctrl button.utility:not(:disabled) { background: #fff; color: #1e293b; border-color: #cbd5e1; }
     body.white-bg #ctrl button.utility:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
     body.white-bg #throughputHint { color: #0369a1; }
     body.white-bg #center {
@@ -486,7 +486,7 @@
       color: #334155;
       border-color: #cbd5e1;
     }
-    body.white-bg #chunkJumpBar button:hover:not(:disabled) {
+    body.white-bg #chunkJumpBar button:not(.active):not(.completed):not(.locked):hover:not(:disabled) {
       background: #eff6ff;
       border-color: #3b82f6;
     }
@@ -495,12 +495,17 @@
       background: #fef3c7;
       color: #92400e;
     }
+    body.white-bg #chunkJumpBar button.locked:not(.active):not(.completed):hover:not(:disabled) {
+      background: #fde68a;
+      border-color: #f59e0b;
+      border-left: 3px solid #d97706;
+    }
     body.white-bg #chunkJumpBar button.completed {
       background: #dcfce7;
       color: #166534;
       border-color: #22c55e;
     }
-    body.white-bg #chunkJumpBar button.completed:hover:not(:disabled) {
+    body.white-bg #chunkJumpBar button.completed:not(.active):not(.locked):hover:not(:disabled) {
       background: #bbf7d0;
       border-color: #16a34a;
     }
@@ -508,6 +513,11 @@
       background: #fde68a;
       color: #78350f;
       border-color: #22c55e;
+      border-left: 3px solid #d97706;
+    }
+    body.white-bg #chunkJumpBar button.completed.locked:not(.active):hover:not(:disabled) {
+      background: #fcd34d;
+      border-color: #16a34a;
       border-left: 3px solid #d97706;
     }
     body.white-bg #chunkJumpBar button.active {
@@ -533,12 +543,13 @@
       border-color: #16a34a;
       border-left: 3px solid #f59e0b;
     }
+    body.white-bg #chunkJumpBar button.active:hover:not(:disabled) { background: #1d4ed8; }
     body.white-bg #chunkConfirm {
       background: #f0fdf4;
       border-color: #bbf7d0;
     }
-    body.white-bg #chunkConfirm button.primary { background: #16a34a; color: #fff; }
-    body.white-bg #chunkConfirm button.primary:hover:not(:disabled) { background: #15803d; }
+    body.white-bg #chunkConfirm button.primary { background: #15803d; color: #fff; }
+    body.white-bg #chunkConfirm button.primary:hover:not(:disabled) { background: #166534; }
     body.white-bg #chunkConfirm button.secondary { background: #e2e8f0; color: #334155; }
     body.white-bg #chunkConfirm button.secondary:hover:not(:disabled) { background: #cbd5e1; }
     body.white-bg #chunkConfirm .stats { color: #0369a1; }
@@ -580,7 +591,7 @@
     <button id="btnStart" data-i18n="start" disabled>Start transmission</button>
     <button id="btnFullscreen" class="utility" data-i18n="fullscreen" data-i18n-title="fullscreenUnavailable" disabled>Fullscreen code</button>
     <button id="btnStop" class="stop" data-i18n="stop" disabled>Stop</button>
-    <button id="btnBackground" class="utility" type="button" title="Switch to white background for easier phone scanning" aria-label="Switch to white background for easier phone scanning">White bg</button>
+    <button id="btnBackground" class="utility" type="button" title="Switch to white background for easier phone scanning">White bg</button>
     <button id="btnDebug" data-i18n-title="debugTitle" data-i18n-aria-label="debugTitle" title="Toggle logs" aria-label="Toggle logs">🐛</button>
     <button id="btnLanguage" class="utility" type="button" data-i18n="targetLanguage" title="Switch language" aria-label="Switch language">Language</button>
   </div>
@@ -1698,7 +1709,14 @@ function computeMinPanel(mw) {
 // 响应式布局核心: 按 #main 可用空间, 让 canvas 沿"受限维度"按 _idealRatio 最大化,
 // 同时给两侧/上下栏各留 MIN_PANEL. center 用 flex:0 0 auto 由 canvas 撑开, 两侧 flex:1 分剩余 — 无循环依赖.
 // 必须显式设宽高 (不能用 max-width/height): cimbar 比例由 wasm 决定, 各自独立约束会撕裂比例 → CFC 扫不到 4 角 marker.
+function syncLogPosition() {
+  const header = $('header');
+  const log = $('log');
+  if (header && log) log.style.top = `${header.offsetHeight + 8}px`;
+}
+
 function fitCanvas() {
+  syncLogPosition();
   const canvas = $('canvas');
   const main = $('main');
   const center = $('center');
@@ -2535,9 +2553,7 @@ function updateBackgroundButton() {
   if (!button) return;
   const isWhite = currentBackground === 'white';
   button.textContent = t(isWhite ? 'darkBackground' : 'whiteBackground');
-  const label = t(isWhite ? 'switchToDarkBackground' : 'switchToWhiteBackground');
-  button.title = label;
-  button.setAttribute('aria-label', label);
+  button.title = t(isWhite ? 'switchToDarkBackground' : 'switchToWhiteBackground');
 }
 
 function applyBackground(mode, persist = true) {
@@ -2595,6 +2611,7 @@ function applyLocale(locale, persist = true) {
   if (State.active) updateProgressUI();
   updateFullscreenButton();
   updateFullscreenStatus({ forceReveal: isCodeFullscreen() });
+  syncLogPosition();
   renderLogs();
 }
 
@@ -2677,7 +2694,10 @@ $('btnBackground').addEventListener('click', () => {
 $('btnLanguage').addEventListener('click', () => {
   applyLocale(currentLocale === 'en' ? 'zh-CN' : 'en');
 });
-$('btnDebug').addEventListener('click', () => $('log').classList.toggle('active'));
+$('btnDebug').addEventListener('click', () => {
+  syncLogPosition();
+  $('log').classList.toggle('active');
+});
 $('btnConfirmChunk').addEventListener('click', () => markCurrentChunkCompleted());
 $('btnResetCompleted').addEventListener('click', resetCompleted);
 
