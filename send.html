@@ -18,7 +18,7 @@
       padding: 8px 16px;
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 12px;
       background: rgba(0,0,0,0.4);
       border-bottom: 1px solid #333;
       flex-wrap: wrap;
@@ -29,19 +29,24 @@
     .file-meta { font-size: 11px; color: #888; display: flex; flex-direction: column; gap: 4px; }
     .file-meta .mrow { display: flex; justify-content: space-between; gap: 8px; }
     .file-meta .mrow b { color: #5fbcff; font-weight: 500; text-align: right; word-break: break-all; }
-    #ctrl { display: flex; gap: 8px; align-items: center; margin-left: auto; flex-wrap: wrap; }
+    #ctrl { display: flex; gap: 6px; align-items: center; margin-left: auto; flex-wrap: wrap; }
     #ctrl label { font-size: 12px; color: #aaa; }
     #ctrl select, #ctrl input { padding: 4px 8px; background: #222; color: #ddd; border: 1px solid #444; border-radius: 4px; font-size: 12px; }
     #ctrl button {
-      padding: 6px 16px; background: #4a90e2; color: white; border: none; border-radius: 4px;
+      padding: 6px 12px; background: #4a90e2; color: white; border: none; border-radius: 4px;
       cursor: pointer; font-size: 13px; font-weight: 500;
     }
     #ctrl button:hover:not(:disabled) { background: #5fa3f5; }
     #ctrl button:disabled { background: #555; cursor: not-allowed; opacity: 0.6; }
     #ctrl button.stop { background: #e74c3c; }
     #ctrl button.stop:hover:not(:disabled) { background: #f15a4a; }
-    #ctrl button.utility { background: #354963; border: 1px solid #526b8b; padding-inline: 12px; }
+    #ctrl button.utility { background: #354963; border: 1px solid #526b8b; padding-inline: 10px; }
     #ctrl button.utility:hover:not(:disabled) { background: #456184; }
+    #throughputHint { color: #5fbcff; font-size: 12px; white-space: nowrap; }
+    #clipboardNotice { color: #f0b86e; font-size: 12px; }
+    #p_hint { margin-bottom: 6px; color: #f5b942; font-weight: 500; text-align: center; }
+    #p_hint b { color: #5fbcff; }
+    #p_hint span { color: #5fbcff; font-size: 14px; }
 
     /* main: 三栏(横屏)/上下(竖屏) 响应式容器.
        canvas 在中间按固有比例(_idealRatio)最大化, 两侧 panel flex:1 自动平分剩余空间.
@@ -359,7 +364,7 @@
     #chunkConfirm .hint { color: #888; font-size: 11px; flex: 1; min-width: 200px; }
 
     #log {
-      position: absolute; top: 60px; right: 16px;
+      position: absolute; top: 56px; right: 16px; z-index: 15;
       max-width: 320px; max-height: 200px; overflow-y: auto;
       background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 6px;
       font-family: monospace; font-size: 11px; color: #888;
@@ -368,6 +373,184 @@
     #log.active { display: block; }
     #log .err { color: #e74c3c; }
     #log .ok { color: #5fbcff; }
+
+    /* 白色背景模式：给黑色外框的 cimbar 码图提供高对比浅色静区（含全屏扫码），改善手机摄像头倾斜/远距定位识别 */
+    body.white-bg {
+      color-scheme: light;
+      background: #fff;
+      color: #1e293b;
+    }
+    body.white-bg #header {
+      background: #f8fafc;
+      border-bottom-color: #cbd5e1;
+    }
+    body.white-bg #header h1 { color: #334155; }
+    body.white-bg #ctrl label { color: #475569; }
+    body.white-bg #ctrl select,
+    body.white-bg #ctrl input {
+      background: #fff;
+      color: #0f172a;
+      border-color: #cbd5e1;
+    }
+    body.white-bg #ctrl button:disabled { background: #cbd5e1; color: #64748b; opacity: 0.75; }
+    body.white-bg #ctrl button.utility { background: #fff; color: #1e293b; border-color: #cbd5e1; }
+    body.white-bg #ctrl button.utility:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
+    body.white-bg #throughputHint { color: #0369a1; }
+    body.white-bg #center {
+      background: #fff;
+      padding: 12px;
+    }
+    body.white-bg #center.fullscreen-active {
+      background: #fff;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-left: max(16px, env(safe-area-inset-left));
+      padding-right: max(16px, env(safe-area-inset-right));
+    }
+    body.white-bg #btnExitFullscreen {
+      background: rgba(248, 250, 252, 0.94);
+      color: #1e293b;
+      border-color: #cbd5e1;
+    }
+    body.white-bg #btnExitFullscreen:hover,
+    body.white-bg #btnExitFullscreen:focus-visible { background: #e2e8f0; }
+    body.white-bg #fullscreenHud {
+      background: rgba(248, 250, 252, 0.94);
+      color: #1e293b;
+      border-color: #cbd5e1;
+    }
+    body.white-bg .side-panel { background: #f8fafc; }
+    body.white-bg #left-panel { border-right-color: #e2e8f0; }
+    body.white-bg #right-panel { border-left-color: #e2e8f0; }
+    body.white-bg #main.portrait #left-panel { border-bottom-color: #e2e8f0; }
+    body.white-bg #main.portrait #right-panel { border-top-color: #e2e8f0; }
+    body.white-bg .file-meta { color: #64748b; }
+    body.white-bg .file-meta .mrow b { color: #0369a1; }
+    body.white-bg .panel-title { color: #334155; border-bottom-color: #e2e8f0; }
+    body.white-bg .panel-title .sub { color: #64748b; }
+    body.white-bg #dropzone {
+      background: rgba(248, 250, 252, 0.96);
+      border-color: #94a3b8;
+    }
+    body.white-bg #dropzone:hover,
+    body.white-bg #dropzone.dragover {
+      border-color: #2563eb;
+      background: rgba(239, 246, 255, 0.96);
+    }
+    body.white-bg #dropzone .hint { color: #334155; }
+    body.white-bg #dropzone .sub { color: #64748b; }
+    body.white-bg #dropzone .actions button {
+      background: #fff;
+      color: #1e293b;
+      border-color: #cbd5e1;
+    }
+    body.white-bg #dropzone .actions button:hover:not(:disabled) {
+      border-color: #2563eb;
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+    body.white-bg #dropzone .actions button.primary {
+      background: #2563eb;
+      border-color: #2563eb;
+      color: #fff;
+    }
+    body.white-bg #dropzone .actions button.primary:hover:not(:disabled) {
+      background: #1d4ed8;
+      border-color: #1d4ed8;
+      color: #fff;
+    }
+    body.white-bg #bundleSummary { color: #334155; }
+    body.white-bg #clipboardNotice { color: #b45309; }
+    body.white-bg #bundleList { background: #fff; border-color: #cbd5e1; }
+    body.white-bg #bundleList .item { border-bottom-color: #e2e8f0; }
+    body.white-bg #bundleList .name { color: #0f172a; }
+    body.white-bg #bundleList .size { color: #64748b; }
+    body.white-bg #preparedPanel { background: #fff; border-color: #93c5fd; }
+    body.white-bg #preparedTitle { color: #0369a1; }
+    body.white-bg #preparedMeta .k { color: #64748b; }
+    body.white-bg #preparedMeta .v { color: #0f172a; }
+    body.white-bg #preparedMeta .hash { color: #334155; }
+    body.white-bg #preparedActions button:disabled {
+      background: #cbd5e1;
+      border-color: #cbd5e1;
+      color: #64748b;
+    }
+    body.white-bg #progress { background: #fff; border-color: #cbd5e1; }
+    body.white-bg #progress .bar-bg { background: #e2e8f0; }
+    body.white-bg #progress .label { color: #475569; }
+    body.white-bg #progress .value { color: #0369a1; }
+    body.white-bg #p_hint { color: #b45309; }
+    body.white-bg #p_hint b,
+    body.white-bg #p_hint span { color: #0369a1; }
+    body.white-bg #chunkJumpBar button {
+      background: #fff;
+      color: #334155;
+      border-color: #cbd5e1;
+    }
+    body.white-bg #chunkJumpBar button:hover:not(:disabled) {
+      background: #eff6ff;
+      border-color: #3b82f6;
+    }
+    body.white-bg #chunkJumpBar button.locked {
+      border-left: 3px solid #d97706;
+      background: #fef3c7;
+      color: #92400e;
+    }
+    body.white-bg #chunkJumpBar button.completed {
+      background: #dcfce7;
+      color: #166534;
+      border-color: #22c55e;
+    }
+    body.white-bg #chunkJumpBar button.completed:hover:not(:disabled) {
+      background: #bbf7d0;
+      border-color: #16a34a;
+    }
+    body.white-bg #chunkJumpBar button.completed.locked {
+      background: #fde68a;
+      color: #78350f;
+      border-color: #22c55e;
+      border-left: 3px solid #d97706;
+    }
+    body.white-bg #chunkJumpBar button.active {
+      background: #2563eb;
+      color: #fff;
+      border-color: #1d4ed8;
+      font-weight: 600;
+    }
+    body.white-bg #chunkJumpBar button.active.locked {
+      background: #2563eb;
+      color: #fff;
+      border-color: #1d4ed8;
+      border-left: 3px solid #f59e0b;
+    }
+    body.white-bg #chunkJumpBar button.active.completed {
+      background: #2563eb;
+      color: #fff;
+      border-color: #16a34a;
+    }
+    body.white-bg #chunkJumpBar button.active.completed.locked {
+      background: #2563eb;
+      color: #fff;
+      border-color: #16a34a;
+      border-left: 3px solid #f59e0b;
+    }
+    body.white-bg #chunkConfirm {
+      background: #f0fdf4;
+      border-color: #bbf7d0;
+    }
+    body.white-bg #chunkConfirm button.primary { background: #16a34a; color: #fff; }
+    body.white-bg #chunkConfirm button.primary:hover:not(:disabled) { background: #15803d; }
+    body.white-bg #chunkConfirm button.secondary { background: #e2e8f0; color: #334155; }
+    body.white-bg #chunkConfirm button.secondary:hover:not(:disabled) { background: #cbd5e1; }
+    body.white-bg #chunkConfirm .stats { color: #0369a1; }
+    body.white-bg #chunkConfirm .hint { color: #475569; }
+    body.white-bg #log {
+      background: rgba(255, 255, 255, 0.95);
+      color: #475569;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    }
+    body.white-bg #log .ok { color: #0369a1; }
+    body.white-bg #log .err { color: #dc2626; }
   </style>
 </head>
 <body>
@@ -393,10 +576,11 @@
     <input type="number" id="fps" min="5" max="20" value="15" style="width: 50px;">
     <label data-i18n="redundancyLabel">Redundancy</label>
     <input type="number" id="redundancy" min="1.0" max="5.0" step="0.1" value="2.0" style="width: 60px;" data-i18n-title="redundancyTitle" title="Fountain-code redundancy multiplier">
-    <span id="throughputHint" data-i18n-title="throughputTitle" title="Physical maximum = FPS × 7500 B; lower bound = maximum / redundancy" style="color: #5fbcff; font-size: 12px; white-space: nowrap;">Expected ~73–110 KB/s</span>
+    <span id="throughputHint" data-i18n-title="throughputTitle" title="Physical maximum = FPS × 7500 B; lower bound = maximum / redundancy">Expected ~73–110 KB/s</span>
     <button id="btnStart" data-i18n="start" disabled>Start transmission</button>
     <button id="btnFullscreen" class="utility" data-i18n="fullscreen" data-i18n-title="fullscreenUnavailable" disabled>Fullscreen code</button>
     <button id="btnStop" class="stop" data-i18n="stop" disabled>Stop</button>
+    <button id="btnBackground" class="utility" type="button" title="Switch to white background for easier phone scanning" aria-label="Switch to white background for easier phone scanning">White bg</button>
     <button id="btnDebug" data-i18n-title="debugTitle" data-i18n-aria-label="debugTitle" title="Toggle logs" aria-label="Toggle logs">🐛</button>
     <button id="btnLanguage" class="utility" type="button" data-i18n="targetLanguage" title="Switch language" aria-label="Switch language">Language</button>
   </div>
@@ -415,7 +599,7 @@
     </div>
     <div id="bundlePanel">
       <div id="bundleSummary">0 staged items</div>
-      <div id="clipboardNotice" role="status" style="color:#f0b86e;font-size:12px;" hidden></div>
+      <div id="clipboardNotice" role="status" hidden></div>
       <div id="bundleList"></div>
     </div>
     <div id="preparedPanel">
@@ -465,8 +649,8 @@
     </div>
 
     <div id="progress">
-      <div id="p_hint" data-i18n-html="initialReceiveHint" style="margin-bottom: 6px; color: #f5b942; font-weight: 500; text-align: center;">
-        💡 Wait for CFC to show the save dialog <span id="p_savecount" style="color: #5fbcff; font-size: 14px;">—</span> times (choose the same folder each time), then stop
+      <div id="p_hint" data-i18n-html="initialReceiveHint">
+        💡 Wait for CFC to show the save dialog <span id="p_savecount">—</span> times (choose the same folder each time), then stop
       </div>
       <div class="row">
         <span><span class="label" data-i18n="currentChunk">Current chunk:</span> <span class="value" id="p_chunk">—</span></span>
@@ -489,6 +673,7 @@
 function $(id) { return document.getElementById(id); }
 
 const LOCALE_STORAGE_KEY = 'cimbar-bigfile:locale';
+const BACKGROUND_STORAGE_KEY = 'cimbar-bigfile:background';
 const I18N = {
   en: {
     documentTitle: 'cimbar-bigfile · Sender',
@@ -515,6 +700,10 @@ const I18N = {
     fullscreenChunkLockedStatus: '🔒 Locked on {chunk} · {position}/{total} · {done} saved',
     fullscreenAllSavedStatus: '✅ All {total} files are saved · stop when ready',
     fullscreenConfirmChunk: '✅ Saved, lock next',
+    whiteBackground: 'White bg',
+    darkBackground: 'Dark bg',
+    switchToWhiteBackground: 'Switch to white background for easier phone scanning',
+    switchToDarkBackground: 'Switch to dark background',
     debugTitle: 'Toggle logs',
     switchLanguage: 'Switch to Chinese',
     targetLanguage: '中文',
@@ -550,8 +739,8 @@ const I18N = {
     initialReceiveHint: '💡 Wait for CFC to open the save dialog for every received file (choose the same folder each time), then stop.',
     simpleReceiveCount: '1 file · direct transfer',
     multiReceiveCount: '{total} files · manifest + {chunks} chunks',
-    simpleReceiveHint: '💡 CFC will save <b style="color:#5fbcff">1 file</b> with its original name. Stop after CFC opens the save dialog and the file is saved.',
-    multiReceiveHint: '💡 Wait for CFC to show the save dialog <span style="color:#5fbcff;font-size:14px;">{total}</span> times (choose the same folder each time), then stop.',
+    simpleReceiveHint: '💡 CFC will save <b>1 file</b> with its original name. Stop after CFC opens the save dialog and the file is saved.',
+    multiReceiveHint: '💡 Wait for CFC to show the save dialog <span>{total}</span> times (choose the same folder each time), then stop.',
     simplePreparedMode: 'Direct single-file transfer',
     multiPreparedMode: '{total} received files; reassembly required',
     roundSuffix: ' (round {round})',
@@ -633,6 +822,10 @@ const I18N = {
     fullscreenChunkLockedStatus: '🔒 已锁定 {chunk} · {position}/{total} · 已保存 {done}',
     fullscreenAllSavedStatus: '✅ {total} 个文件均已保存 · 可以停止传输',
     fullscreenConfirmChunk: '✅ 已保存，锁定下一块',
+    whiteBackground: '白色背景',
+    darkBackground: '深色背景',
+    switchToWhiteBackground: '切换为白色背景以提高手机扫码识别率',
+    switchToDarkBackground: '切换为深色背景',
     debugTitle: '切换日志显示',
     switchLanguage: 'Switch to English',
     targetLanguage: 'EN',
@@ -668,8 +861,8 @@ const I18N = {
     initialReceiveHint: '💡 等 CFC 为每个接收文件弹出保存对话框（每次选同一目录）后即可停止。',
     simpleReceiveCount: '1 个文件 · 直接传输',
     multiReceiveCount: '{total} 个文件 · manifest + {chunks} 块',
-    simpleReceiveHint: '💡 CFC 会保存 <b style="color:#5fbcff">1 个文件</b>，文件名即原文件名，无需拼接。等 CFC 弹出保存对话框并完成保存后即可停止。',
-    multiReceiveHint: '💡 等 CFC 弹出保存对话框 <span style="color:#5fbcff;font-size:14px;">{total}</span> 次（每次选同一目录）后即可停止。',
+    simpleReceiveHint: '💡 CFC 会保存 <b>1 个文件</b>，文件名即原文件名，无需拼接。等 CFC 弹出保存对话框并完成保存后即可停止。',
+    multiReceiveHint: '💡 等 CFC 弹出保存对话框 <span>{total}</span> 次（每次选同一目录）后即可停止。',
     simplePreparedMode: '单文件直发',
     multiPreparedMode: '{total} 个接收文件，需拼接',
     roundSuffix: '（第 {round} 轮）',
@@ -738,6 +931,17 @@ function readStoredLocale() {
 }
 
 let currentLocale = readStoredLocale();
+
+function readStoredBackground() {
+  try {
+    const stored = localStorage.getItem(BACKGROUND_STORAGE_KEY);
+    return stored === 'white' || stored === 'light' ? 'white' : 'dark';
+  } catch (_) {
+    return 'dark';
+  }
+}
+
+let currentBackground = readStoredBackground();
 
 function localizedValue(value) {
   if (value && value.i18nKey) return t(value.i18nKey, value.i18nParams);
@@ -1531,21 +1735,26 @@ function fitCanvas() {
   const mw = main.clientWidth;
   const mh = main.clientHeight;
   if (mw <= 0 || mh <= 0) return;
+  if (center.style.paddingBottom) center.style.paddingBottom = '';
+
+  const centerStyle = getComputedStyle(center);
+  const padX = (parseFloat(centerStyle.paddingLeft) || 0) + (parseFloat(centerStyle.paddingRight) || 0);
+  const padY = (parseFloat(centerStyle.paddingTop) || 0) + (parseFloat(centerStyle.paddingBottom) || 0);
 
   // main 更高 = 竖屏(上下栏), 更宽 = 横屏(左右栏). portrait 类让 CSS 把 #main 切成 column.
-  // 横屏但宽度放不下两侧栏 (mw-2×minPanel < 80) 时也退化为上下堆叠, 避免窄横屏三栏互相挤压不可用.
+  // 横屏但宽度放不下两侧栏 (mw-2×minPanel-padX < 80) 时也退化为上下堆叠, 避免窄横屏三栏互相挤压不可用.
   const minPanel = computeMinPanel(mw);
-  const portrait = mh > mw || (mw - 2 * minPanel) < 80;
+  const portrait = mh > mw || (mw - 2 * minPanel - padX) < 80;
   main.classList.toggle('portrait', portrait);
 
   let cw, ch;
   if (!portrait) {
     // 横屏: 高度占满, 宽 = 高×ratio, 但宽不挤占左右栏 (各留 minPanel)
-    ch = Math.min(mh, (mw - 2 * minPanel) / ratio);
+    ch = Math.min(mh - padY, (mw - 2 * minPanel - padX) / ratio);
     cw = ch * ratio;
   } else {
     // 竖屏: 宽度占满, 高 = 宽/ratio, 但高不挤占上下栏 (各留 minPanel)
-    cw = Math.min(mw, (mh - 2 * minPanel) * ratio);
+    cw = Math.min(mw - padX, (mh - 2 * minPanel - padY) * ratio);
     ch = cw / ratio;
   }
   cw = Math.max(80, Math.floor(cw));
@@ -2321,6 +2530,32 @@ function updateThroughputHint() {
   });
 }
 
+function updateBackgroundButton() {
+  const button = $('btnBackground');
+  if (!button) return;
+  const isWhite = currentBackground === 'white';
+  button.textContent = t(isWhite ? 'darkBackground' : 'whiteBackground');
+  const label = t(isWhite ? 'switchToDarkBackground' : 'switchToWhiteBackground');
+  button.title = label;
+  button.setAttribute('aria-label', label);
+}
+
+function applyBackground(mode, persist = true) {
+  currentBackground = mode === 'white' ? 'white' : 'dark';
+  document.body.classList.toggle('white-bg', currentBackground === 'white');
+  updateBackgroundButton();
+
+  if (persist) {
+    try {
+      localStorage.setItem(BACKGROUND_STORAGE_KEY, currentBackground);
+    } catch (_) {
+      // Storage can be unavailable in strict/private browser contexts; the in-page choice still works.
+    }
+  }
+
+  requestAnimationFrame(fitCanvas);
+}
+
 function applyLocale(locale, persist = true) {
   currentLocale = locale === 'zh-CN' ? 'zh-CN' : 'en';
   document.documentElement.lang = currentLocale;
@@ -2341,6 +2576,7 @@ function applyLocale(locale, persist = true) {
   const languageButton = $('btnLanguage');
   languageButton.title = t('switchLanguage');
   languageButton.setAttribute('aria-label', t('switchLanguage'));
+  updateBackgroundButton();
 
   if (persist) {
     try {
@@ -2435,6 +2671,9 @@ $('btnFullscreenConfirm').addEventListener('click', (event) => {
   markCurrentChunkCompleted({ lockNext: true });
   if (event.detail > 0) event.currentTarget.blur();
 });
+$('btnBackground').addEventListener('click', () => {
+  applyBackground(currentBackground === 'white' ? 'dark' : 'white');
+});
 $('btnLanguage').addEventListener('click', () => {
   applyLocale(currentLocale === 'en' ? 'zh-CN' : 'en');
 });
@@ -2483,6 +2722,7 @@ window.addEventListener('paste', async (e) => {
 });
 
 applyLocale(currentLocale, false);
+applyBackground(currentBackground, false);
 logI18n('logPageLoaded');
 </script>
 
